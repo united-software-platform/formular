@@ -2,3 +2,7 @@
 .ssh/
 .claude-accounts/
 .idea/
+
+# Окружение и кэш интерпретатора
+src/.venv/
+__pycache__/
