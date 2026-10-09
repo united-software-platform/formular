@@ -1,0 +1,22 @@
+{
+  "delivery_version": "1.0.0",
+  "installed_at": "2026-10-09T12:25:46Z",
+  "files": [
+    {
+      "path": "backlog/README.md",
+      "sha256": "084935fb44ff45feca19ccca1e1a7bca0a3132a8c374f857e1fb6ce35e3267a0"
+    },
+    {
+      "path": "docs/glossary.md",
+      "sha256": "170b8f439778c977d6466f4bab48bc4e0abfa5a9a04aa6736ad53f009cd27eda"
+    },
+    {
+      "path": "rules/operation-backlog-rules.md",
+      "sha256": "b1c9d180a96c89903d0d6669a737cf5e2ad26e558a1d9f8248e32af60bb19c7a"
+    },
+    {
+      "path": "templates/sample-operation.md",
+      "sha256": "f2e3bbfa33c601d28d8a7bc5da5013d9a19b464d59825993c19ae1aa1f70b6b9"
+    }
+  ]
+}
