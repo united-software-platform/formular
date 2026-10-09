@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "zakaz-naryad": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "backlog@zakaz-naryad": true
+  }
+}

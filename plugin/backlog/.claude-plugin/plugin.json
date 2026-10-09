@@ -1,0 +1,11 @@
+{
+  "name": "backlog",
+
+  "version": "1.0.0",
+  "description": "Порождение и исполнение беклогов операций: носитель порядка работ и следа исполнения для операции с необратимым шагом",
+  "author": {
+    "name": "usp"
+  },
+  "license": "MIT",
+  "keywords": ["backlog", "operation", "sdd"]
+}

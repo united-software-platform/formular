@@ -1,0 +1,53 @@
+#!/bin/sh
+# Вход командной строки порождения беклогов операций.
+#
+# Одна точка на все операции: вход операций не знает, а шаблон у каждой свой. Подкоманда
+# одна — generate; состав вызова называет `backlog generate --help`.
+#
+# Вход попадает на PATH каталогом bin/ поставки, поэтому $0 может быть именем команды,
+# а не путём: оно разрешается command -v, и уже от разрешённого пути берётся корень
+# поставки. Опираться на рабочий каталог прогона нельзя — вход вызывается из любого.
+#
+# Коды возврата совпадают с кодами модуля: 0 — беклог порождён либо уже лежал,
+# 1 — ввод не позволяет породить, 2 — ошибка вызова или окружения.
+
+set -eu
+
+SELF=$(command -v "$0" 2>/dev/null || printf '%s' "$0")
+ROOT=$(cd "$(dirname "$SELF")/.." && pwd)
+
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+# Кеш байт-кода в каталог поставки не пишется: каталог переписывает обновление,
+# а на установке, закрытой для записи, попытка записи ничего не сообщает.
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONDONTWRITEBYTECODE
+
+# Способ поставки носителя порядка исполнения определяется составом корня: у плагина
+# есть манифест, и носитель адресуется именем навыка, разрешаемым платформой. Вендоренная
+# поставка манифеста не несёт — там носитель адресуется путём в дереве проекта.
+if [ -z "${BACKLOG_RUNNER:-}" ]; then
+    if [ -f "$ROOT/.claude-plugin/plugin.json" ]; then
+        BACKLOG_RUNNER="/backlog:backlog-run"
+    else
+        BACKLOG_RUNNER=".claude/skills/backlog-run/SKILL.md"
+    fi
+    export BACKLOG_RUNNER
+fi
+
+REQUIREMENTS="$ROOT/src/requirements.txt"
+INTERPRETER=python3
+
+# Окружение собирается только под объявленную зависимость. Пока файл зависимостей пуст,
+# ядро обходится стандартной библиотекой, и сборка окружения была бы работой впустую.
+if [ -f "$REQUIREMENTS" ] && grep -qv '^[[:space:]]*\(#.*\)\?$' "$REQUIREMENTS"; then
+    . "$ROOT/lib/python-env.sh"
+    # Каталог окружения лежит вне каталога поставки: поставку переписывает обновление,
+    # и собранное внутри неё обновление не переживает.
+    VENV_DIR="${CLAUDE_PLUGIN_DATA:-${XDG_CACHE_HOME:-$HOME/.cache}/backlog}/venv"
+    prepare_python_env "$VENV_DIR" "$REQUIREMENTS"
+    INTERPRETER="$PYTHON_ENV_INTERPRETER"
+fi
+
+exec "$INTERPRETER" -m backlog "$@"

@@ -1,0 +1,16 @@
+{
+  "name": "zakaz-naryad",
+  "owner": {
+    "name": "usp"
+  },
+  "metadata": {
+    "description": "Механизм беклога операций: порождение по шаблону и носитель порядка исполнения"
+  },
+  "plugins": [
+    {
+      "name": "backlog",
+      "source": "./plugin/backlog",
+      "description": "Порождение и исполнение беклогов операций"
+    }
+  ]
+}
