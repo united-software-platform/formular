@@ -3,7 +3,7 @@
     "zakaz-naryad": {
       "source": {
         "source": "directory",
-        "path": "."
+        "path": "/app"
       }
     }
   },
