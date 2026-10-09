@@ -51,7 +51,7 @@ backlog/
 ([BKL-003](../rules/operation-backlog-rules.md#порождение-прогоном)):
 
 ```bash
-sh tools/backlog/backlog.sh generate --operation sample-operation \
+backlog generate --operation sample-operation \
   --value target=проба --flag host-part
 ```
 
@@ -59,8 +59,9 @@ sh tools/backlog/backlog.sh generate --operation sample-operation \
 условных блоков называются полностью — и взведённые `--flag`, и снятые `--no-flag`: признак,
 не названный вовсе, оставляет маркер блока в тексте и прекращает порождение.
 
-Состав вызова целиком — `sh tools/backlog/backlog.sh generate --help`. Исполняет беклог навык
-[`backlog-run`](../.claude/skills/backlog-run/SKILL.md) — он же носитель порядка исполнения.
+Состав вызова целиком — `backlog generate --help`. Вход поставляется плагином `backlog`,
+и имя команды не зависит от того, куда плагин установлен. Исполняет беклог навык
+`/backlog:backlog-run` — он же носитель порядка исполнения.
 
 ## Порождённое не правится
 
