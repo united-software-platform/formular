@@ -1,4 +1,4 @@
-# zakaz-naryad
+# formular
 
 Небольшая система формирования и исполнения беклогов.
 
@@ -63,8 +63,8 @@
 Плагин ставится из перечня источников этого репозитория, нормы — прогоном установки:
 
 ```bash
-claude plugin marketplace add united-software-platform/zakaz-naryad
-claude plugin install backlog@zakaz-naryad
+claude plugin marketplace add united-software-platform/formular
+claude plugin install backlog@formular
 backlog install
 ```
 
