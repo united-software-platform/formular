@@ -1,6 +1,6 @@
 {
   "extraKnownMarketplaces": {
-    "zakaz-naryad": {
+    "formular": {
       "source": {
         "source": "directory",
         "path": "/app"
@@ -8,6 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "backlog@zakaz-naryad": true
+    "backlog@formular": true
   }
 }
