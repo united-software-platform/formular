@@ -90,7 +90,8 @@ class BacklogTask:
 
     Задача обязана нести строку проверки и признак «выполнено ранее»: без первой нечем
     признать её исполненной, без второго — нечем признать её исполненной ранее. Отметка
-    и подтверждение описывают ход исполнения, а не состав задачи.
+    и подтверждение описывают ход исполнения, а не состав задачи. Поле `text` — слова задачи
+    без разметки отметки: по ним правила каркаса узнают, что задача называет.
     """
 
     number: str
@@ -100,6 +101,7 @@ class BacklogTask:
     has_completion_marker: bool
     stop_sign: bool = False
     confirmation: str = ""
+    text: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,6 +111,9 @@ class BacklogDocument:
     Структура приходит из адаптера: разметку, которой она добыта, домен не знает. Поле
     `frontmatter_parsed` отделяет беклог без фронтматтера от беклога с пустым фронтматтером —
     первое есть нарушение, второе возможно у операции без значений.
+
+    Поле `rule_anchors` несёт якоря ссылок, найденные в тексте: ссылка адресует раздел норм
+    якорем, и по нему правило каркаса узнаёт, на какую норму беклог ссылается.
     """
 
     frontmatter_parsed: bool = False
@@ -118,10 +123,69 @@ class BacklogDocument:
     runner_pointer: bool = False
     version_table: bool = False
     leftovers: tuple = ()
+    rule_anchors: tuple = ()
 
 
 # Значения фронтматтера, которыми подтверждение названо незаполненным.
 EMPTY_VALUES = ("", "null", "~")
+
+# Каркас беклога: нормы исполнения, на которые беклог обязан ссылаться, — якорями разделов
+# норм, потому что ссылка адресует раздел, а номер правила в тексте ссылки ничего не адресует.
+EXECUTION_NORM_ANCHORS = (
+    ("самодостаточность-значений", "самодостаточность значений"),
+    ("признак-исполнения", "признак исполнения"),
+    ("стоп-знак-необратимой-задачи", "стоп-знак необратимой задачи"),
+    ("передача-исполнения", "передача исполнения"),
+)
+
+# Вызов самопроверки, который называет вторая задача: имя команды задано нормой BKL-010
+# и меняется вместе с ней.
+SELF_CHECK_CALL = "backlog lint"
+
+# Значение фронтматтера, которым назван носитель порядка исполнения.
+RUNNER_KEY = "runner"
+
+
+def _skeleton_findings(document):
+    """Расхождения каркаса: ссылки на нормы исполнения и две обязательные первые задачи.
+
+    Каркас проверяется по смыслу — наличием ссылки и названного значения, — а не дословным
+    совпадением с образцом: дословное правило ломалось бы при первой правке образца.
+    """
+    found = []
+
+    for anchor, name in EXECUTION_NORM_ANCHORS:
+        if anchor not in document.rule_anchors:
+            found.append(
+                Finding(1, f"беклог не ссылается на норму «{name}»: якорь #{anchor}")
+            )
+
+    tasks = document.tasks
+    runner = str(document.frontmatter.get(RUNNER_KEY, "")).strip()
+    if not tasks:
+        found.append(Finding(1, "беклог не несёт задач: каркас начинается первыми двумя"))
+        return found
+
+    first = tasks[0]
+    if runner and runner not in first.text:
+        found.append(
+            Finding(
+                first.line,
+                f"первая задача {first.number} не называет носитель порядка исполнения "
+                f"{runner}",
+            )
+        )
+
+    if len(tasks) < 2 or SELF_CHECK_CALL not in tasks[1].text:
+        place = tasks[1] if len(tasks) > 1 else first
+        found.append(
+            Finding(
+                place.line,
+                f"вторая задача не называет прогон структурной проверки `{SELF_CHECK_CALL}`",
+            )
+        )
+
+    return found
 
 
 def structure_findings(document):
@@ -168,6 +232,8 @@ def structure_findings(document):
 
     if not document.version_table:
         found.append(Finding(1, "файл не завершается таблицей версий"))
+
+    found.extend(_skeleton_findings(document))
 
     return tuple(found)
 

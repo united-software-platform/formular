@@ -1,8 +1,8 @@
 """Слой приложения модуля беклога: сценарии порождения, проверки и установки, контракты чтения.
 
-Сценариев здесь четыре: порождение беклога названной операции над названным предметом,
-структурная проверка лежащего беклога, проверка полноты его исполнения и установка состава
-поставки в дерево целевого проекта.
+Сценариев здесь пять: порождение беклога названной операции над названным предметом,
+приёмка шаблона операции по всем сочетаниям признаков, структурная проверка лежащего беклога,
+проверка полноты его исполнения и установка состава поставки в дерево целевого проекта.
 Операции, знающие свои значения и свои предусловия, живут снаружи — они собирают вызов
 и передают сценарию готовые значения, потому что вид значения во фронтматтере есть
 свойство носителя, а не сценария.
@@ -24,6 +24,16 @@ from .generate_backlog import (
     GenerateBacklogInput,
     GenerateBacklogOutput,
     GenerateBacklogUseCase,
+)
+from .check_template import (
+    ACCEPTED,
+    DEFECTIVE,
+    MAX_FLAGS,
+    TOO_MANY_FLAGS,
+    CheckTemplateInput,
+    CheckTemplateOutput,
+    CheckTemplateUseCase,
+    VariantFinding,
 )
 from .lint_backlog import (
     CLEAN,
@@ -63,6 +73,14 @@ __all__ = [
     "GENERATED",
     "ALREADY_GENERATED",
     "REJECTED",
+    "CheckTemplateInput",
+    "CheckTemplateOutput",
+    "CheckTemplateUseCase",
+    "VariantFinding",
+    "ACCEPTED",
+    "DEFECTIVE",
+    "TOO_MANY_FLAGS",
+    "MAX_FLAGS",
     "LintBacklogInput",
     "LintBacklogOutput",
     "LintBacklogUseCase",

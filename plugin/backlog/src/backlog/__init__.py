@@ -40,10 +40,12 @@ from .infrastructure import (
     FileTemplates,
     ImportLine,
     MarkdownBacklog,
+    TemplateGrammar,
     digest,
     load_template,
     render,
     scalar,
+    template_grammar,
 )
 
 __all__ = [
@@ -64,6 +66,8 @@ __all__ = [
     "load_template",
     "render",
     "scalar",
+    "template_grammar",
+    "TemplateGrammar",
     "BACKLOG_NAME",
     "TEMPLATE_VERSION_PATTERN",
     "FileDelivery",

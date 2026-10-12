@@ -59,6 +59,7 @@ STOP_SIGN_MARK = "Стоп-знак"
 CONFIRMATION_PATTERN = r"confirmed\.[A-Za-z0-9_.]+"
 VERSION_TABLE_HEADING = "## Версионирование"
 RUNNER_KEY = "runner"
+RULE_ANCHOR_PATTERN = r"\]\([^)\s]*#(?P<anchor>[^)\s]+)\)"
 TEMPLATE_VERSION_KEY = "template_version"
 
 
@@ -129,6 +130,32 @@ def render(template_text, values, flags):
     for key, value in values.items():
         text = text.replace("{{" + key + "}}", value)
     return text
+
+
+@dataclasses.dataclass(frozen=True)
+class TemplateGrammar:
+    """Грамматика шаблона: имена подстановок и признаки условных блоков, в порядке появления."""
+
+    substitutions: tuple = ()
+    flags: tuple = ()
+
+
+def template_grammar(template_text):
+    """Перечень подстановок и признаков условных блоков шаблона.
+
+    Знание о `{{x}}`, `{{#x}}` и `{{^x}}` живёт здесь, рядом с рендером: домен грамматики
+    шаблона не знает, а сценарий приёмки получает перечень готовым, как получает рендер.
+    """
+    substitutions = []
+    flags = []
+    for match in re.finditer(r"\{\{(?P<sigil>[#^/]?)(?P<name>[^}]+)\}\}", template_text):
+        sigil, name = match.group("sigil"), match.group("name").strip()
+        if sigil == "/":
+            continue
+        target = flags if sigil in ("#", "^") else substitutions
+        if name not in target:
+            target.append(name)
+    return TemplateGrammar(substitutions=tuple(substitutions), flags=tuple(flags))
 
 
 class FileTemplates:
@@ -210,6 +237,7 @@ def _tasks(lines):
             ),
             stop_sign=STOP_SIGN_MARK in text,
             confirmation=confirmation.group(0) if confirmation else "",
+            text=re.sub(TASK_PATTERN, r"\g<rest>", text, count=1, flags=re.M),
         )
 
     for number, line in enumerate(lines, start=1):
@@ -254,6 +282,16 @@ def _leftovers(lines):
     return tuple(found)
 
 
+def _rule_anchors(lines):
+    """Якоря ссылок вида `](...#якорь)`: по ним видно, на какие разделы беклог ссылается."""
+    found = []
+    for line in lines:
+        for match in re.finditer(RULE_ANCHOR_PATTERN, line):
+            if match.group("anchor") not in found:
+                found.append(match.group("anchor"))
+    return tuple(found)
+
+
 def _version_table(lines):
     """Завершается ли беклог таблицей версий: заголовок и хотя бы одна строка таблицы."""
     for number, line in enumerate(lines):
@@ -284,6 +322,7 @@ class MarkdownBacklog(DocumentParser):
             runner_pointer=bool(values.get(RUNNER_KEY, "")),
             version_table=_version_table(lines),
             leftovers=_leftovers(lines),
+            rule_anchors=_rule_anchors(lines),
         )
 
 

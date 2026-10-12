@@ -1,4 +1,4 @@
-"""Вход командной строки: порождение беклога операции и проверка лежащего беклога.
+"""Вход командной строки: порождение беклога, приёмка шаблона и проверка лежащего беклога.
 
 Вход операций не знает. Он принимает имя операции, предмет, значения подстановок и признаки
 условных блоков — и тем же составом вызывается для любой операции, у которой есть шаблон.
@@ -13,8 +13,13 @@
 только на файле, грамматика которого цела. Структурную проверку прогоняет и само порождение —
 до записи файла, потому что лежащий беклог правке не подлежит.
 
-Коды возврата: 0 — беклог порождён либо уже лежал, проверка расхождений не нашла; 1 — ввод
-не позволяет породить, либо проверка нашла расхождения; 2 — ошибка вызова или окружения.
+Приёмка шаблона — `check-template` — прогоняет шаблон по всем сочетаниям признаков условных
+блоков на значениях-заглушках и файла не пишет: она отвечает на вопрос, порождает ли шаблон
+цельный беклог в любом варианте, а не заводит беклог.
+
+Коды возврата: 0 — беклог порождён либо уже лежал, проверка расхождений не нашла, шаблон
+принят; 1 — ввод не позволяет породить, либо проверка нашла расхождения; 2 — ошибка вызова
+или окружения.
 Исход «уже порождён» ошибкой не является: порождённое задним числом не правится, и повторный
 вызов отвечает путём лежащего файла, оставляя его неизменным.
 """
@@ -38,10 +43,14 @@ from . import (
     MarkdownBacklog,
     render,
     scalar,
+    template_grammar,
 )
 from .application import (
     ALREADY_GENERATED,
     CONFLICT,
+    TOO_MANY_FLAGS,
+    CheckTemplateInput,
+    CheckTemplateUseCase,
     GenerateBacklogInput,
     GenerateBacklogUseCase,
     InstallRulesInput,
@@ -72,6 +81,10 @@ TEMPLATES_NAME = "templates"
 # Адрес носителя порядка исполнения при плагинной поставке. Вход поставки называет свой
 # способ переменной BACKLOG_RUNNER; значение по умолчанию отвечает поставке плагином.
 RUNNER_DEFAULT = "/backlog:backlog-run"
+
+# Предмет беклога при приёмке шаблона: файла приёмка не пишет, и предмет нужен только
+# для ссылки на нормы, которая считается от адреса беклога.
+CHECK_SUBJECT = "check-template"
 
 # Файл норм беклога в дереве целевого проекта: от него считается ссылка, которую несёт
 # порождённый беклог.
@@ -157,6 +170,24 @@ def _rules_link(backlog_dir):
     return os.path.relpath(target, backlog_dir)
 
 
+def _derived_values(operation, subject, stamp, root):
+    """Значения, которые порождение выводит само, а не принимает вызовом.
+
+    Перечень один на порождение и приёмку шаблона: два носителя одного перечня разошлись бы
+    при первой правке, и приёмка проверяла бы не то, что порождение заполнит.
+    """
+    return {
+        "date": datetime.datetime.now().strftime(DATE_FORMAT),
+        "run_stamp": stamp,
+        "operation": operation,
+        "subject": subject,
+        # Носитель порядка исполнения и ссылка на нормы — значения порождения, а не текст
+        # шаблона: способ поставки и раскладка проекта шаблону не принадлежат.
+        "runner": os.environ.get("BACKLOG_RUNNER") or RUNNER_DEFAULT,
+        "rules": _rules_link(root / operation / subject),
+    }
+
+
 def _pairs(given):
     """Разбирает значения вида `ключ=значение`.
 
@@ -196,7 +227,7 @@ def _flags(raised, lowered):
 
 
 def _parse(argv):
-    """Разбирает вызов: порождение, две проверки и установка норм."""
+    """Разбирает вызов: порождение, приёмка шаблона, две проверки и установка норм."""
     parser = argparse.ArgumentParser(
         prog="backlog",
         description="Порождение беклога операции по её шаблону и проверка лежащего беклога.",
@@ -242,6 +273,12 @@ def _parse(argv):
         help="Каталог шаблонов операций; умолчание — каталог templates в корне проекта "
         "либо значение переменной BACKLOG_TEMPLATES",
     )
+    check = sub.add_parser(
+        "check-template",
+        help="Принять шаблон операции: прогнать его по всем сочетаниям признаков без записи файла",
+    )
+    check.add_argument("path", help="Путь к файлу шаблона; имя файла без расширения — имя операции")
+
     lint = sub.add_parser(
         "lint", help="Проверить структуру лежащего беклога"
     )
@@ -288,16 +325,7 @@ def generate(arguments):
         else _default_dir("BACKLOG_TEMPLATES", TEMPLATES_NAME)
     )
 
-    values = {
-        "date": datetime.datetime.now().strftime(DATE_FORMAT),
-        "run_stamp": stamp,
-        "operation": operation,
-        "subject": subject,
-        # Носитель порядка исполнения и ссылка на нормы — значения порождения, а не текст
-        # шаблона: способ поставки и раскладка проекта шаблону не принадлежат.
-        "runner": os.environ.get("BACKLOG_RUNNER") or RUNNER_DEFAULT,
-        "rules": _rules_link(root / operation / subject),
-    }
+    values = _derived_values(operation, subject, stamp, root)
     values.update(_pairs(arguments.value))
     flags = _flags(arguments.flag, arguments.no_flag)
 
@@ -344,6 +372,80 @@ def generate(arguments):
 
     print(f"Беклог порождён шаблоном версии {result.template_version}")
     print(f"Беклог: {path}")
+    return EXIT_OK
+
+
+def _stub(name):
+    """Заглушка подстановки: имя остаётся видимым, и ошибка в имени читаема в выводе."""
+    return f"<{name}>"
+
+
+def _check_values(substitutions, derived):
+    """Значения приёмки: выводимые порождением и заглушки прочих подстановок.
+
+    Подстановка `<ключ>_scalar` заполняется от значения `<ключ>` тем же видом, каким её
+    заполнило бы порождение: приёмка проверяет то, что порождение подставит.
+    """
+    values = dict(derived)
+    for name in substitutions:
+        if name in values or name == "template_version":
+            continue
+        if name.endswith("_scalar"):
+            base = name[: -len("_scalar")]
+            values[name] = scalar(values.get(base, _stub(base)))
+            continue
+        values[name] = _stub(name)
+    return values
+
+
+def _combination(flags):
+    """Сочетание признаков словами: взведён либо снят каждый."""
+    if not flags:
+        return "без признаков"
+    return ", ".join(f"{name} {'взведён' if state else 'снят'}" for name, state in flags)
+
+
+def check_template(arguments):
+    """Принимает шаблон операции: прогоняет его по всем сочетаниям признаков."""
+    path = pathlib.Path(arguments.path)
+    operation = _segment(path.stem, "имя операции")
+    templates = FileTemplates(path.parent, _environment, suffix=path.suffix)
+    version, text = templates.read(operation)
+
+    stamp = datetime.datetime.now().strftime(STAMP_FORMAT)
+    root = _default_dir("BACKLOG_ROOT", ROOT_NAME)
+    grammar = template_grammar(text)
+    values = _check_values(
+        grammar.substitutions, _derived_values(operation, CHECK_SUBJECT, stamp, root)
+    )
+
+    use_case = CheckTemplateUseCase(render=render, parser=MarkdownBacklog())
+    result = use_case.execute(
+        CheckTemplateInput(
+            template_version=version, text=text, values=values, flags=grammar.flags
+        )
+    )
+
+    if result.outcome == TOO_MANY_FLAGS:
+        _environment(
+            f"шаблон несёт признаков {len(grammar.flags)}, вариантов {result.variants}: "
+            "шаблон стоит разделить, а не перебирать"
+        )
+
+    for item in result.findings:
+        print(
+            f"  - [{_combination(item.flags)}] строка {item.finding.line}: "
+            f"{item.finding.message}",
+            file=sys.stderr,
+        )
+    verdict = (
+        f"Шаблон {operation} версии {version}: вариантов {result.variants}, "
+        f"расхождений {len(result.findings)}"
+    )
+    if result.findings:
+        print(verdict, file=sys.stderr)
+        return EXIT_BLOCKED
+    print(verdict)
     return EXIT_OK
 
 
@@ -477,6 +579,7 @@ def main(argv=None):
         "lint": lint,
         "verify": verify,
         "generate": generate,
+        "check-template": check_template,
     }
     return commands[arguments.command](arguments)
 
