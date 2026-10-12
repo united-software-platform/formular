@@ -1,9 +1,10 @@
-<!-- template_version: 1.0.0 -->
+<!-- template_version: 1.1.0 -->
 ---
 template_version: "{{template_version}}"
 generated: "{{date}}"
 operation: {{operation}}
 subject: "{{subject}}"
+runner: "{{runner}}"
 target: {{target_scalar}}
 confirmed:
   irreversible_step: null
@@ -23,7 +24,8 @@ confirmed:
 необратимой задачей — задан [BKL-006]({{rules}}#признак-исполнения)
 и [BKL-007]({{rules}}#стоп-знак-необратимой-задачи), а его носитель —
 `{{runner}}`: прочитать его перед первой задачей; здесь он
-не пересказывается ([BKL-008]({{rules}}#передача-исполнения)).
+не пересказывается ([BKL-008]({{rules}}#передача-исполнения)). Указатель носителя несёт
+и фронтматтер значением `runner`: оттуда его читает проверка, отсюда — исполнитель.
 
 ---
 

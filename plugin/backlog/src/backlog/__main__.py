@@ -1,4 +1,4 @@
-"""Вход командной строки: порождение беклога операции.
+"""Вход командной строки: порождение беклога операции и проверка лежащего беклога.
 
 Вход операций не знает. Он принимает имя операции, предмет, значения подстановок и признаки
 условных блоков — и тем же составом вызывается для любой операции, у которой есть шаблон.
@@ -8,9 +8,15 @@
 Признаки условных блоков называются вызовом полностью — и взведённые, и снятые: признак,
 не названный вовсе, оставляет маркер блока в тексте и прекращает порождение.
 
-Коды возврата: 0 — беклог порождён либо уже лежал, 1 — ввод не позволяет породить,
-2 — ошибка вызова или окружения. Исход «уже порождён» ошибкой не является: порождённое задним
-числом не правится, и повторный вызов отвечает путём лежащего файла, оставляя его неизменным.
+Проверок две. `lint` отвечает на вопрос, цела ли грамматика лежащего беклога; `verify` —
+на вопрос, исполнен ли он, и включает структурную проверку: вердикт о полноте отметок осмыслен
+только на файле, грамматика которого цела. Структурную проверку прогоняет и само порождение —
+до записи файла, потому что лежащий беклог правке не подлежит.
+
+Коды возврата: 0 — беклог порождён либо уже лежал, проверка расхождений не нашла; 1 — ввод
+не позволяет породить, либо проверка нашла расхождения; 2 — ошибка вызова или окружения.
+Исход «уже порождён» ошибкой не является: порождённое задним числом не правится, и повторный
+вызов отвечает путём лежащего файла, оставляя его неизменным.
 """
 
 import argparse
@@ -22,12 +28,14 @@ import sys
 import json
 
 from . import (
+    FileBacklog,
     FileBacklogs,
     FileDelivery,
     FileManifest,
     FileProject,
     FileTemplates,
     ImportLine,
+    MarkdownBacklog,
     render,
     scalar,
 )
@@ -39,6 +47,11 @@ from .application import (
     InstallRulesInput,
     InstallRulesUseCase,
     LINE_ADDED,
+    LintBacklogInput,
+    LintBacklogUseCase,
+    REJECTED,
+    VerifyBacklogInput,
+    VerifyBacklogUseCase,
 )
 
 EXIT_OK = 0
@@ -183,10 +196,10 @@ def _flags(raised, lowered):
 
 
 def _parse(argv):
-    """Разбирает вызов. Единственная подкоманда — порождение."""
+    """Разбирает вызов: порождение, две проверки и установка норм."""
     parser = argparse.ArgumentParser(
         prog="backlog",
-        description="Порождение беклога операции по её шаблону.",
+        description="Порождение беклога операции по её шаблону и проверка лежащего беклога.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -229,6 +242,17 @@ def _parse(argv):
         help="Каталог шаблонов операций; умолчание — каталог templates в корне проекта "
         "либо значение переменной BACKLOG_TEMPLATES",
     )
+    lint = sub.add_parser(
+        "lint", help="Проверить структуру лежащего беклога"
+    )
+    lint.add_argument("path", help="Путь к файлу беклога")
+
+    verify = sub.add_parser(
+        "verify",
+        help="Проверить полноту исполнения беклога: структура и отметки",
+    )
+    verify.add_argument("path", help="Путь к файлу беклога")
+
     install = sub.add_parser(
         "install", help="Установить нормы беклога в дерево целевого проекта"
     )
@@ -282,9 +306,8 @@ def generate(arguments):
     use_case = GenerateBacklogUseCase(
         templates=templates,
         backlogs=backlogs,
-        render=lambda text, given, conditions: render(
-            text, given, conditions, _environment
-        ),
+        render=render,
+        parser=MarkdownBacklog(),
     )
 
     result = use_case.execute(
@@ -297,6 +320,20 @@ def generate(arguments):
     )
     path = backlogs.path_of(result.operation, result.subject)
 
+    if result.outcome == REJECTED:
+        print(
+            "Ошибка окружения: порождённый беклог не отвечает структуре, и файл не заведён:",
+            file=sys.stderr,
+        )
+        for finding in result.findings:
+            print(f"  - строка {finding.line}: {finding.message}", file=sys.stderr)
+        print(
+            f"Шаблон операции {operation} версии {result.template_version} правится, "
+            "а не порождённый файл",
+            file=sys.stderr,
+        )
+        return EXIT_ENVIRONMENT
+
     if result.outcome == ALREADY_GENERATED:
         print(
             f"Предупреждение: беклог операции {operation} над предметом {subject} уже порождён; "
@@ -307,6 +344,58 @@ def generate(arguments):
 
     print(f"Беклог порождён шаблоном версии {result.template_version}")
     print(f"Беклог: {path}")
+    return EXIT_OK
+
+
+def _report(findings, subject):
+    """Печатает перечень расхождений и вердикт последней строкой.
+
+    Место в файле называется у каждого расхождения: читателю вывода не нужно открывать беклог,
+    чтобы понять, где нарушение. Вердикт стоит последней строкой — её и читают, когда перечень
+    длинный.
+    """
+    for finding in findings:
+        print(f"  - строка {finding.line}: {finding.message}", file=sys.stderr)
+    if findings:
+        print(f"{subject}: расхождений {len(findings)}", file=sys.stderr)
+        return EXIT_BLOCKED
+    print(f"{subject}: расхождений нет")
+    return EXIT_OK
+
+
+def _checks():
+    """Собирает носители проверки: чтение файла по пути и разбор его текста."""
+    return FileBacklog(_environment), MarkdownBacklog()
+
+
+def lint(arguments):
+    """Проверяет структуру беклога, лежащего по названному пути."""
+    backlogs, parser = _checks()
+    use_case = LintBacklogUseCase(backlogs=backlogs, parser=parser)
+    result = use_case.execute(LintBacklogInput(path=arguments.path))
+    return _report(result.findings, "Структура беклога")
+
+
+def verify(arguments):
+    """Проверяет структуру и полноту исполнения беклога по названному пути."""
+    backlogs, parser = _checks()
+    use_case = VerifyBacklogUseCase(backlogs=backlogs, parser=parser)
+    result = use_case.execute(VerifyBacklogInput(path=arguments.path))
+
+    for finding in result.structure:
+        print(f"  - строка {finding.line}: {finding.message}", file=sys.stderr)
+    for finding in result.execution:
+        print(f"  - строка {finding.line}: {finding.message}", file=sys.stderr)
+
+    if result.findings:
+        print(
+            f"Исполнение беклога: расхождений {len(result.findings)} "
+            f"(структура {len(result.structure)}, отметки и подтверждения "
+            f"{len(result.execution)})",
+            file=sys.stderr,
+        )
+        return EXIT_BLOCKED
+    print("Исполнение беклога: расхождений нет, беклог исполнен")
     return EXIT_OK
 
 
@@ -383,9 +472,13 @@ def install(arguments):
 def main(argv=None):
     """Разбирает вызов и исполняет подкоманду."""
     arguments = _parse(sys.argv[1:] if argv is None else argv)
-    if arguments.command == "install":
-        return install(arguments)
-    return generate(arguments)
+    commands = {
+        "install": install,
+        "lint": lint,
+        "verify": verify,
+        "generate": generate,
+    }
+    return commands[arguments.command](arguments)
 
 
 if __name__ == "__main__":
