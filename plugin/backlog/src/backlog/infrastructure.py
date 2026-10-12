@@ -17,10 +17,24 @@
 import dataclasses
 import hashlib
 import json
+import pathlib
 import re
 
-from .application import DeliverySource, Installed, ManifestStore, ProjectTree
-from .domain import BACKLOG_EXISTS, BACKLOG_WRITTEN, BacklogRepository
+from .application import (
+    DeliverySource,
+    DocumentParser,
+    Installed,
+    ManifestStore,
+    ProjectTree,
+)
+from .domain import (
+    BACKLOG_EXISTS,
+    BACKLOG_WRITTEN,
+    BacklogDocument,
+    BacklogRepository,
+    BacklogTask,
+    Leftover,
+)
 
 BACKLOG_NAME = "tasks.md"
 
@@ -34,6 +48,18 @@ SUBSTITUTION_PATTERN = r"\{\{[^}]+\}\}"
 BLOCK_OPEN = "{{#%s}}"
 BLOCK_NEGATED = "{{^%s}}"
 BLOCK_CLOSE = ("{{/%s}}", "{{/^%s}}")
+
+# Грамматика порождённого беклога: та же разметка, которой он записан.
+FRONTMATTER_FENCE = "---"
+TASK_PATTERN = r"^- \[(?P<mark>[ xX])\]\s+(?P<rest>.*)$"
+TASK_NUMBER_PATTERN = r"^(?P<number>[0-9]+(?:\.[0-9]+)*)"
+CHECK_PREFIX = "- Проверка:"
+COMPLETION_PREFIX = "- Выполнено ранее:"
+STOP_SIGN_MARK = "Стоп-знак"
+CONFIRMATION_PATTERN = r"confirmed\.[A-Za-z0-9_.]+"
+VERSION_TABLE_HEADING = "## Версионирование"
+RUNNER_KEY = "runner"
+TEMPLATE_VERSION_KEY = "template_version"
 
 
 def scalar(value):
@@ -68,15 +94,16 @@ def load_template(path, fail):
     return match.group("version"), rest
 
 
-def render(template_text, values, flags, fail):
+def render(template_text, values, flags):
     """Рендерит шаблон: условные блоки по признакам и подстановки значений.
 
     Условный блок оставляет в беклоге либо группу задач, либо названное решение о её
     отсутствии: пропуск группы должен быть виден читателю беклога, а не подразумеваться
     её отсутствием.
 
-    Подстановка, которой нет среди значений, — ошибка окружения: шаблон проверяется целиком,
-    и его дефект обнаруживается порождением, а не исполнителем беклога.
+    Остатка подстановки рендер не проверяет: остаток — нарушение структуры порождённого
+    беклога, и называет его структурная проверка перед записью файла. Два носителя одного
+    правила разошлись бы при первой правке.
     """
     openings = {BLOCK_OPEN % name: name for name in flags}
     negations = {BLOCK_NEGATED % name: name for name in flags}
@@ -101,10 +128,6 @@ def render(template_text, values, flags, fail):
     text = "\n".join(lines) + "\n"
     for key, value in values.items():
         text = text.replace("{{" + key + "}}", value)
-
-    left = re.search(SUBSTITUTION_PATTERN, text)
-    if left:
-        fail(f"шаблон содержит подстановку, которой нет среди значений: {left.group(0)}")
     return text
 
 
@@ -124,6 +147,169 @@ class FileTemplates:
     def read(self, operation):
         """Возвращает пару (версия шаблона, текст) шаблона названной операции."""
         return load_template(self._directory / f"{operation}{self._suffix}", self._fail)
+
+
+def _frontmatter(lines):
+    """Разбирает фронтматтер беклога: значения верхнего уровня и один уровень вложенности.
+
+    Вложенность глубже одного уровня не разбирается намеренно: фронтматтер несёт значения
+    исполнения, а не дерево настроек, и вложенный ключ записывается точкой — `confirmed.шаг`,
+    тем же видом, каким его называет текст задачи.
+
+    Возвращает пару (разобран ли фронтматтер, значения точечными ключами). Отсутствие
+    фронтматтера от пустого фронтматтера отличается первым значением пары: первое есть
+    нарушение, второе возможно у операции без значений.
+    """
+    if not lines or lines[0].strip() != FRONTMATTER_FENCE:
+        return False, {}
+
+    values = {}
+    parent = ""
+    for line in lines[1:]:
+        if line.strip() == FRONTMATTER_FENCE:
+            return True, values
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        nested = key.startswith((" ", "\t"))
+        name = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if nested and parent:
+            values[f"{parent}.{name}"] = value
+            continue
+        parent = name if not value else ""
+        values[name] = value
+    return False, values
+
+
+def _tasks(lines):
+    """Собирает задачи беклога: отметка, номер, строки проверки и признака, стоп-знак.
+
+    Задача кончается там, где начинается следующая задача либо заголовок раздела: строки
+    между ними принадлежат ей — перенос текста, строка проверки, строка признака.
+
+    Поле подтверждения, которое задача записывает во фронтматтер, берётся из её же текста:
+    задача называет его сама, и второго носителя этого знания — перечня полей в прогоне —
+    заводить незачем.
+    """
+    collected = []
+    current = None
+    body = []
+
+    def close(task, text):
+        if task is None:
+            return None
+        confirmation = re.search(CONFIRMATION_PATTERN, text)
+        return dataclasses.replace(
+            task,
+            has_check=any(line.strip().startswith(CHECK_PREFIX) for line in body),
+            has_completion_marker=any(
+                line.strip().startswith(COMPLETION_PREFIX) for line in body
+            ),
+            stop_sign=STOP_SIGN_MARK in text,
+            confirmation=confirmation.group(0) if confirmation else "",
+        )
+
+    for number, line in enumerate(lines, start=1):
+        match = re.match(TASK_PATTERN, line)
+        if match is None and not line.startswith("#"):
+            if current is not None:
+                body.append(line)
+            continue
+
+        closed = close(current, "\n".join(body))
+        if closed is not None:
+            collected.append(closed)
+        current = None
+        body = []
+
+        if match is None:
+            continue
+
+        rest = match.group("rest")
+        numbered = re.match(TASK_NUMBER_PATTERN, rest)
+        current = BacklogTask(
+            number=numbered.group("number") if numbered else rest[:20],
+            line=number,
+            marked=match.group("mark") in ("x", "X"),
+            has_check=False,
+            has_completion_marker=False,
+        )
+        body = [line]
+
+    closed = close(current, "\n".join(body))
+    if closed is not None:
+        collected.append(closed)
+    return tuple(collected)
+
+
+def _leftovers(lines):
+    """Остатки грамматики шаблона в тексте беклога, с местом каждого."""
+    found = []
+    for number, line in enumerate(lines, start=1):
+        for match in re.finditer(SUBSTITUTION_PATTERN, line):
+            found.append(Leftover(line=number, text=match.group(0)))
+    return tuple(found)
+
+
+def _version_table(lines):
+    """Завершается ли беклог таблицей версий: заголовок и хотя бы одна строка таблицы."""
+    for number, line in enumerate(lines):
+        if line.strip() != VERSION_TABLE_HEADING:
+            continue
+        if any(rest.strip().startswith("|") for rest in lines[number + 1 :]):
+            return True
+    return False
+
+
+class MarkdownBacklog(DocumentParser):
+    """Разбор порождённого беклога в структуру домена.
+
+    Реализует контракт разбора. Здесь живёт всё, чего не знает домен: заголовок фронтматтера,
+    синтаксис отметки, вид строки проверки и строки признака, заголовок таблицы версий.
+    Правила над разобранным — что беклог обязан нести — остаются доменом.
+    """
+
+    def parse(self, text):
+        """Возвращает разобранный беклог структурой домена."""
+        lines = text.splitlines()
+        parsed, values = _frontmatter(lines)
+        return BacklogDocument(
+            frontmatter_parsed=parsed,
+            frontmatter=values,
+            template_version=values.get(TEMPLATE_VERSION_KEY, ""),
+            tasks=_tasks(lines),
+            runner_pointer=bool(values.get(RUNNER_KEY, "")),
+            version_table=_version_table(lines),
+            leftovers=_leftovers(lines),
+        )
+
+
+class FileBacklog:
+    """Проверяемый беклог: текст файла по названному пути.
+
+    Реализует контракт чтения проверяемого беклога. Адрес не складывается из операции
+    и предмета: проверка читает лежащий файл, и корень следа ей не нужен.
+
+    Отсутствие файла и нечитаемый файл — ошибка вызова: проверка о беклоге в таком случае
+    ничего не говорит, и вердикта у неё нет.
+    """
+
+    def __init__(self, fail):
+        self._fail = fail
+
+    def read(self, path):
+        """Возвращает текст беклога, лежащего по названному пути."""
+        target = pathlib.Path(path)
+        if not target.is_file():
+            self._fail(f"беклог не найден: {target}")
+        try:
+            return target.read_text(encoding="utf-8")
+        except OSError as error:
+            self._fail(f"беклог не читается: {target}: {error}")
+        return ""
 
 
 class FileBacklogs(BacklogRepository):

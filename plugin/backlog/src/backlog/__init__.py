@@ -10,23 +10,36 @@
 порождения один на все операции, а состав задач различается, и общий шаблон с ветвлениями
 исполнителю пришлось бы читать как инструкцию с условиями.
 
-Слои внутри модуля: `domain` — беклог как агрегат и контракт записи, `application` —
-сценарий порождения и контракты чтения, `infrastructure` — шаблон, рендер и каталог
-порождённых беклогов.
+Слои внутри модуля: `domain` — беклог как агрегат, контракт записи и правила того, чем беклог
+обязан быть, `application` — сценарии порождения и проверки с контрактами чтения,
+`infrastructure` — шаблон, рендер, разбор порождённого беклога и каталог беклогов.
 """
 
-from .domain import BACKLOG_EXISTS, BACKLOG_WRITTEN, Backlog, BacklogRepository
+from .domain import (
+    BACKLOG_EXISTS,
+    BACKLOG_WRITTEN,
+    Backlog,
+    BacklogDocument,
+    BacklogRepository,
+    BacklogTask,
+    Finding,
+    Leftover,
+    execution_findings,
+    structure_findings,
+)
 from .infrastructure import (
     BACKLOG_NAME,
     MANIFEST_NAME,
     TEMPLATE_VERSION_PATTERN,
     DeliveryItem,
+    FileBacklog,
     FileBacklogs,
     FileDelivery,
     FileManifest,
     FileProject,
     FileTemplates,
     ImportLine,
+    MarkdownBacklog,
     digest,
     load_template,
     render,
@@ -36,10 +49,18 @@ from .infrastructure import (
 __all__ = [
     "Backlog",
     "BacklogRepository",
+    "BacklogDocument",
+    "BacklogTask",
+    "Finding",
+    "Leftover",
+    "structure_findings",
+    "execution_findings",
     "BACKLOG_WRITTEN",
     "BACKLOG_EXISTS",
     "FileTemplates",
+    "FileBacklog",
     "FileBacklogs",
+    "MarkdownBacklog",
     "load_template",
     "render",
     "scalar",

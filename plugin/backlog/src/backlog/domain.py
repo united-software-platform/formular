@@ -12,6 +12,12 @@
 О формате файла домен не знает: ни о фронтматтере, ни о Markdown, ни о грамматике подстановок.
 Это забота адаптера — беклог для домена есть операция, предмет, версия шаблона и значения
 исполнения.
+
+Но чем беклог обязан быть, домен знает: задача несёт строку проверки и признак «выполнено
+ранее», беклог несёт версию шаблона, которой порождён, и таблицу версий. Это ответ на вопрос
+«чем является задача беклога», а не на вопрос «как она записана»: разобранный беклог приходит
+в домен структурой, и правила над ней — структурные и исполнительские — живут здесь. Разметку,
+которой структура добыта, домен по-прежнему не знает.
 """
 
 import abc
@@ -52,3 +58,144 @@ class BacklogRepository(abc.ABC):
     @abc.abstractmethod
     def add(self, backlog, text):
         """Заводит беклог. Возвращает BACKLOG_WRITTEN либо BACKLOG_EXISTS."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Finding:
+    """Расхождение, найденное проверкой: место в файле и что именно не так.
+
+    Место названо строкой файла, потому что проверку читает тот, кто беклог открывает:
+    вердикт без места заставил бы искать нарушение глазами.
+    """
+
+    line: int
+    message: str
+
+
+@dataclasses.dataclass(frozen=True)
+class Leftover:
+    """Остаток грамматики шаблона в порождённом беклоге: подстановка либо маркер блока.
+
+    В беклоге остаток означает одно из двух: дефект шаблона, прошедший порождение, либо
+    правку порождённого руками. Исполнитель прочёл бы остаток как часть задачи.
+    """
+
+    line: int
+    text: str
+
+
+@dataclasses.dataclass(frozen=True)
+class BacklogTask:
+    """Задача беклога: что о ней известно из разобранного файла.
+
+    Задача обязана нести строку проверки и признак «выполнено ранее»: без первой нечем
+    признать её исполненной, без второго — нечем признать её исполненной ранее. Отметка
+    и подтверждение описывают ход исполнения, а не состав задачи.
+    """
+
+    number: str
+    line: int
+    marked: bool
+    has_check: bool
+    has_completion_marker: bool
+    stop_sign: bool = False
+    confirmation: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class BacklogDocument:
+    """Разобранный беклог: то, над чем работают правила проверки.
+
+    Структура приходит из адаптера: разметку, которой она добыта, домен не знает. Поле
+    `frontmatter_parsed` отделяет беклог без фронтматтера от беклога с пустым фронтматтером —
+    первое есть нарушение, второе возможно у операции без значений.
+    """
+
+    frontmatter_parsed: bool = False
+    frontmatter: dict = dataclasses.field(default_factory=dict)
+    template_version: str = ""
+    tasks: tuple = ()
+    runner_pointer: bool = False
+    version_table: bool = False
+    leftovers: tuple = ()
+
+
+# Значения фронтматтера, которыми подтверждение названо незаполненным.
+EMPTY_VALUES = ("", "null", "~")
+
+
+def structure_findings(document):
+    """Структурные расхождения беклога: цела ли его грамматика.
+
+    Правила перечисляются целиком, а не до первого нарушения: перечень отвечает на вопрос,
+    что в файле не так, одним прогоном — иначе исправление дефектного шаблона шло бы
+    по одному нарушению за прогон.
+    """
+    found = []
+
+    if not document.frontmatter_parsed:
+        found.append(Finding(1, "фронтматтер беклога отсутствует или не разбирается"))
+    elif not document.template_version:
+        found.append(
+            Finding(1, "фронтматтер не несёт версии шаблона: значение template_version")
+        )
+
+    for leftover in document.leftovers:
+        found.append(
+            Finding(
+                leftover.line,
+                f"в тексте осталась грамматика шаблона: {leftover.text}",
+            )
+        )
+
+    for task in document.tasks:
+        if not task.has_check:
+            found.append(
+                Finding(task.line, f"задача {task.number} не несёт строки проверки")
+            )
+        if not task.has_completion_marker:
+            found.append(
+                Finding(
+                    task.line,
+                    f"задача {task.number} не несёт признака «выполнено ранее»",
+                )
+            )
+
+    if not document.runner_pointer:
+        found.append(
+            Finding(1, "беклог не называет носителя порядка исполнения указателем")
+        )
+
+    if not document.version_table:
+        found.append(Finding(1, "файл не завершается таблицей версий"))
+
+    return tuple(found)
+
+
+def execution_findings(document):
+    """Расхождения полноты исполнения: исполнен ли беклог.
+
+    Признак «выполнено ранее» здесь не сверяется: он описан прозой, и его сверка с состоянием
+    остаётся обязанностью исполняющего. Правила отвечают только за то, что видно в файле —
+    отметку и подтверждение владельца.
+    """
+    found = []
+
+    for task in document.tasks:
+        if not task.marked:
+            found.append(Finding(task.line, f"задача {task.number} не отмечена"))
+
+    for task in document.tasks:
+        if not (task.marked and task.stop_sign and task.confirmation):
+            continue
+        value = str(document.frontmatter.get(task.confirmation, "")).strip()
+        if value in EMPTY_VALUES:
+            found.append(
+                Finding(
+                    task.line,
+                    f"задача {task.number} отмечена исполненной, а подтверждение "
+                    f"{task.confirmation} во фронтматтере не заполнено",
+                )
+            )
+
+    return tuple(found)
