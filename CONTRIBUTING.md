@@ -27,6 +27,7 @@
 | Домен, сценарии и адаптеры | [`src/backlog/`](./plugin/backlog/src/backlog) |
 | Сборка окружения | [`lib/python-env.sh`](./plugin/backlog/lib/python-env.sh) |
 | Порядок исполнения | [`skills/backlog-run/`](./plugin/backlog/skills/backlog-run/SKILL.md) |
+| Приёмка шаблона | [`skills/backlog-template/`](./plugin/backlog/skills/backlog-template/SKILL.md) |
 | Образцовый шаблон | [`templates/`](./plugin/backlog/templates) |
 | Состав установки в проект | [`share/`](./plugin/backlog/share) |
 
@@ -114,6 +115,13 @@ make init
 python3 -m unittest discover -s tests
 ```
 
+Шаблон операции — приёмка по всем сочетаниям признаков, обязательна при правке шаблона
+по [BKL-009](./rules/operation-backlog-rules.md#прогон-при-правке-шаблона):
+
+```bash
+backlog check-template templates/<операция>.md
+```
+
 `Makefile` — объём секций целей, обязателен при любой правке файла
 по [MAKE-004](./rules/makefile-rules.md#локальный-прогон-проверки-make-004):
 
@@ -169,3 +177,4 @@ openspec validate <имя изменения> --strict
 | Версия | Дата | Задача | Агент | Модель | Описание изменений |
 |--------|------|--------|-------|--------|--------------------|
 | 1.0.0 | 2026-10-12 | FRM-008 | Claude Code | Claude Opus 5 | Начальное создание: носитель для роли правящего систему. Из `README.md` перенесены карта поставки, карта принадлежности репозитория, абзац о репозитории как первом потребителе собственной поставки и раздел «Разработка»; дописаны окружение разработки (`make init`, `.env`, профили аккаунтов), перечень проверок (`unittest`, `tools/make-lint/check.sh`, `openspec validate`), перечень норм ссылками и поток изменений OpenSpec. Нормы не пересказываются: называются кодом и ссылкой по [BKL-008](./rules/operation-backlog-rules.md#передача-исполнения) |
+| 1.0.1 | 2026-10-12 | FRM-010 | Claude Code | Claude Opus 5.5 | Карта поставки пополнена навыком приёмки шаблона `skills/backlog-template/`; в перечень проверок добавлена приёмка шаблона `backlog check-template` со ссылкой на `BKL-009` — обязательна при правке шаблона операции |

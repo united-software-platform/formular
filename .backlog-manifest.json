@@ -1,10 +1,10 @@
 {
-  "delivery_version": "1.1.0",
-  "installed_at": "2026-10-12T11:57:21Z",
+  "delivery_version": "1.2.0",
+  "installed_at": "2026-10-12T21:15:47Z",
   "files": [
     {
       "path": "backlog/README.md",
-      "sha256": "d9def5c73f7a7468ddb009cc2895566a380572067e721d0783dab8be2365f965"
+      "sha256": "5f236c916d3ff96d1b52740a248424880917ff8b1e1d392277bc2ef6b70af99d"
     },
     {
       "path": "docs/glossary.md",
@@ -12,7 +12,7 @@
     },
     {
       "path": "rules/operation-backlog-rules.md",
-      "sha256": "95274696f591f4c94af95af2094baf20f5a389acbad11c550862bc372ddbaa0b"
+      "sha256": "60c2d7c8e449839b7abbc576648720f60583b964c7cbb18bdce549bc2692db4f"
     },
     {
       "path": "templates/sample-operation.md",
