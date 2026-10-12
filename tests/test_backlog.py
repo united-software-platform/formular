@@ -26,6 +26,7 @@ from backlog import (  # noqa: E402
     FileDelivery,
     FileManifest,
     FileProject,
+    FileTemplates,
     ImportLine,
     Leftover,
     MarkdownBacklog,
@@ -41,6 +42,7 @@ from backlog.application import (  # noqa: E402
     CONFLICT,
     EXECUTED,
     FOUND,
+    GENERATED,
     INCOMPLETE,
     INSTALLED,
     LINE_ADDED,
@@ -604,3 +606,104 @@ class FileBacklogTest(unittest.TestCase):
             with self.assertRaises(Refused) as refusal:
                 FileBacklog(fail).read(pathlib.Path(directory) / "нет.md")
             self.assertIn("не найден", str(refusal.exception))
+
+
+# Каталоги поставки: образцовый шаблон лежит в поставке, а не в дереве проверок.
+DELIVERY_TEMPLATES = (
+    pathlib.Path(__file__).resolve().parents[1] / "plugin" / "backlog" / "templates"
+)
+SAMPLE_OPERATION = "sample-operation"
+
+# Каталог проверок репозитория поставки: в проекте-потребителе его нет, и задача образца
+# называть его не вправе.
+DELIVERY_ONLY_DIR = "tests"
+
+
+def _sample_values():
+    """Значения вызова порождения по образцовому шаблону: тот же состав, что у входа.
+
+    Версии шаблона среди них нет: её ставит сценарий маркером шаблона, и названная вызовом
+    она подменила бы собой то, чем беклог порождён.
+    """
+    return {
+        "date": "2026-10-12",
+        "run_stamp": "20261012000000",
+        "operation": SAMPLE_OPERATION,
+        "subject": "проба",
+        "runner": "/backlog:backlog-run",
+        "rules": "../../../rules/operation-backlog-rules.md",
+        "target": "предмет операции",
+        "target_scalar": scalar("предмет операции"),
+    }
+
+
+def _sample_task_blocks():
+    """Блоки задач образцового шаблона: строка задачи и строки под ней.
+
+    Текст задачи собирается из шаблона, а не из разобранного беклога: разобранная задача
+    несёт номер и признаки, но не свои слова, а требование говорит именно о словах.
+    """
+    lines = (DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    blocks = []
+    current = None
+    for line in lines:
+        if line.startswith("- ["):
+            if current is not None:
+                blocks.append("\n".join(current))
+            current = [line]
+        elif current is not None:
+            if line.startswith(("#", "---", "|")):
+                blocks.append("\n".join(current))
+                current = None
+            else:
+                current.append(line)
+    if current is not None:
+        blocks.append("\n".join(current))
+    return blocks
+
+
+class DeliveredSampleTest(unittest.TestCase):
+    """Пригодность приносимого образца: он порождается и исполним у потребителя.
+
+    Проверка держит то, в чём дефект тих: образец поставки может не отвечать проверке
+    этой же поставки, и порождение у потребителя откажет на первом же вызове — но ни один
+    прогон репозитория поставки об этом не скажет.
+    """
+
+    def test_delivered_sample_generates_and_passes_structure(self):
+        """Порождение по поставляемому образцу заводит файл, и структура расхождений не несёт."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            backlogs = FileBacklogs(root, fail)
+            use_case = GenerateBacklogUseCase(
+                templates=FileTemplates(DELIVERY_TEMPLATES, fail),
+                backlogs=backlogs,
+                render=render,
+                parser=MarkdownBacklog(),
+            )
+            result = use_case.execute(
+                GenerateBacklogInput(
+                    operation=SAMPLE_OPERATION,
+                    subject="проба",
+                    values=_sample_values(),
+                    flags={"host-part": False},
+                )
+            )
+            self.assertEqual(result.outcome, GENERATED, result.findings)
+
+            path = backlogs.path_of(SAMPLE_OPERATION, "проба")
+            lint = LintBacklogUseCase(
+                backlogs=FileBacklog(fail), parser=MarkdownBacklog()
+            )
+            verdict = lint.execute(LintBacklogInput(path=path))
+            self.assertEqual(verdict.findings, ())
+            self.assertEqual(verdict.outcome, CLEAN)
+
+    def test_delivered_sample_names_no_delivery_only_directory(self):
+        """Задача образца зовёт только то, что есть у потребителя."""
+        blocks = _sample_task_blocks()
+        self.assertTrue(blocks, "задач в образцовом шаблоне не нашлось")
+        for block in blocks:
+            self.assertNotIn(DELIVERY_ONLY_DIR, block, block)
