@@ -1,6 +1,6 @@
 {
   "delivery_version": "1.1.0",
-  "installed_at": "2026-10-12T10:07:07Z",
+  "installed_at": "2026-10-12T11:08:53Z",
   "files": [
     {
       "path": "backlog/README.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "templates/sample-operation.md",
-      "sha256": "027cb4c69332612fa5c13ee9913ff1fa35f917117bc3e1d652235bfff1778881"
+      "sha256": "26b9ea916cf2b58e08bcc32b2dcd3cfc5fcd7db3b8eae6a486acca4bd27a2259"
     }
   ]
 }
