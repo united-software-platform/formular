@@ -1,7 +1,10 @@
-"""Проверки ядра беклога: грамматика шаблона, маркер версии, запись и установка состава.
+"""Проверки ядра беклога: грамматика шаблона, маркер версии, запись, проверки и установка.
 
 Проверяется то, в чём дефект тих: рендер оставит лишнюю задачу, маркер версии пропадёт,
-повторная запись перезапишет состоявшийся файл — и ни одно из трёх не заявит о себе само.
+повторная запись перезапишет состоявшийся файл, задача уйдёт в беклог без признака
+«выполнено ранее», исполненная задача останется неотмеченной — и ни одно из этого
+не заявит о себе само.
+
 Исполняется стандартным unittest: зависимостей у ядра нет, и проверки их не добавляют.
 """
 
@@ -16,24 +19,42 @@ from backlog import (  # noqa: E402
     BACKLOG_EXISTS,
     BACKLOG_WRITTEN,
     Backlog,
+    BacklogDocument,
+    BacklogTask,
+    FileBacklog,
     FileBacklogs,
     FileDelivery,
     FileManifest,
     FileProject,
     ImportLine,
+    Leftover,
+    MarkdownBacklog,
+    execution_findings,
     load_template,
     render,
     scalar,
+    structure_findings,
 )
 from backlog.application import (  # noqa: E402
     ALREADY_INSTALLED,
+    CLEAN,
     CONFLICT,
+    EXECUTED,
+    FOUND,
+    INCOMPLETE,
     INSTALLED,
     LINE_ADDED,
     LINE_PRESENT,
+    REJECTED,
     UPDATED,
+    GenerateBacklogInput,
+    GenerateBacklogUseCase,
     InstallRulesInput,
     InstallRulesUseCase,
+    LintBacklogInput,
+    LintBacklogUseCase,
+    VerifyBacklogInput,
+    VerifyBacklogUseCase,
 )
 
 
@@ -49,26 +70,29 @@ class RenderTest(unittest.TestCase):
     """Грамматика шаблона: подстановки и условные блоки."""
 
     def test_substitutes_values(self):
-        text = render("предмет {{subject}} и {{version}}\n", {"subject": "проба", "version": "1"}, {}, fail)
+        text = render("предмет {{subject}} и {{version}}\n", {"subject": "проба", "version": "1"}, {})
         self.assertEqual(text, "предмет проба и 1\n")
 
     def test_keeps_block_on_flag(self):
         template = "начало\n{{#host}}\nхостовая задача\n{{/host}}\nконец\n"
-        kept = render(template, {}, {"host": True}, fail)
-        dropped = render(template, {}, {"host": False}, fail)
+        kept = render(template, {}, {"host": True})
+        dropped = render(template, {}, {"host": False})
         self.assertIn("хостовая задача", kept)
         self.assertNotIn("хостовая задача", dropped)
 
     def test_negated_block_is_mirror(self):
         template = "{{^host}}\nхостовой части нет\n{{/^host}}\n"
-        self.assertIn("хостовой части нет", render(template, {}, {"host": False}, fail))
-        self.assertNotIn("хостовой части нет", render(template, {}, {"host": True}, fail))
+        self.assertIn("хостовой части нет", render(template, {}, {"host": False}))
+        self.assertNotIn("хостовой части нет", render(template, {}, {"host": True}))
 
-    def test_refuses_substitution_without_value(self):
-        """Подстановка без значения — дефект шаблона, и он виден порождению, а не исполнителю."""
-        with self.assertRaises(Refused) as refusal:
-            render("путь {{missing}}\n", {"other": "значение"}, {}, fail)
-        self.assertIn("{{missing}}", str(refusal.exception))
+    def test_leaves_substitution_without_value(self):
+        """Остаток подстановки рендер не проверяет: его называет структурная проверка.
+
+        Два носителя одного правила разошлись бы при первой правке, поэтому рендер
+        оставляет остаток в тексте, а порождение отказывает по вердикту проверки.
+        """
+        text = render("путь {{missing}}\n", {"other": "значение"}, {})
+        self.assertIn("{{missing}}", text)
 
 
 class ScalarTest(unittest.TestCase):
@@ -252,3 +276,331 @@ class InstallRulesTest(unittest.TestCase):
             (self.project / "CLAUDE.md").read_text(encoding="utf-8").splitlines(),
             ["@rules/a.md", "@rules/norm.md", "@rules/b.md"],
         )
+
+
+# Беклог, отвечающий структуре целиком: от него отступают проверки структурных правил.
+WHOLE_BACKLOG = """---
+template_version: "1.1.0"
+runner: "/backlog:backlog-run"
+confirmed:
+  irreversible_step: null
+---
+
+# Операция над предметом
+
+- [ ] 1.1 Первая задача
+  - Проверка: состояние названо
+  - Выполнено ранее: состояние уже таково
+- [ ] 2.1 **Стоп-знак.** Необратимый шаг, подтверждение в `confirmed.irreversible_step`
+  - Проверка: шаг исполнен
+  - Выполнено ранее: состояние несёт результат шага
+
+## Версионирование
+
+| Версия | Дата | Задача | Агент | Модель | Описание изменений |
+|--------|------|--------|-------|--------|--------------------|
+| 1.0.0 | 2026-10-12 | проба | backlog | — | Беклог порождён |
+"""
+
+
+def executed(text):
+    """Тот же беклог, но исполненный: отметки закрыты, подтверждение заполнено."""
+    return text.replace("- [ ]", "- [x]").replace(
+        "irreversible_step: null", 'irreversible_step: "владелец подтвердил"'
+    )
+
+
+class StructureRulesTest(unittest.TestCase):
+    """Структурные правила домена: чем беклог обязан быть."""
+
+    def document(self, **changed):
+        base = dict(
+            frontmatter_parsed=True,
+            frontmatter={"template_version": "1.1.0"},
+            template_version="1.1.0",
+            tasks=(
+                BacklogTask(
+                    number="1.1",
+                    line=10,
+                    marked=False,
+                    has_check=True,
+                    has_completion_marker=True,
+                ),
+            ),
+            runner_pointer=True,
+            version_table=True,
+        )
+        base.update(changed)
+        return BacklogDocument(**base)
+
+    def messages(self, document):
+        return [finding.message for finding in structure_findings(document)]
+
+    def test_whole_backlog_has_no_findings(self):
+        self.assertEqual(self.messages(self.document()), [])
+
+    def test_names_every_finding_at_once(self):
+        """Перечень отвечает одним прогоном: исправление по одному нарушению за прогон дорого."""
+        document = self.document(
+            frontmatter_parsed=False,
+            runner_pointer=False,
+            version_table=False,
+            tasks=(
+                BacklogTask(
+                    number="1.1",
+                    line=10,
+                    marked=False,
+                    has_check=False,
+                    has_completion_marker=False,
+                ),
+            ),
+        )
+        self.assertEqual(len(structure_findings(document)), 5)
+
+    def test_task_without_check_is_named(self):
+        document = self.document(
+            tasks=(
+                BacklogTask(
+                    number="1.2",
+                    line=14,
+                    marked=False,
+                    has_check=False,
+                    has_completion_marker=True,
+                ),
+            )
+        )
+        self.assertEqual(self.messages(document), ["задача 1.2 не несёт строки проверки"])
+
+    def test_task_without_completion_marker_is_named(self):
+        document = self.document(
+            tasks=(
+                BacklogTask(
+                    number="1.3",
+                    line=18,
+                    marked=False,
+                    has_check=True,
+                    has_completion_marker=False,
+                ),
+            )
+        )
+        self.assertEqual(
+            self.messages(document), ["задача 1.3 не несёт признака «выполнено ранее»"]
+        )
+
+    def test_leftover_substitution_is_named(self):
+        document = self.document(leftovers=(Leftover(line=7, text="{{target}}"),))
+        self.assertIn("{{target}}", self.messages(document)[0])
+
+    def test_frontmatter_without_template_version_is_named(self):
+        document = self.document(frontmatter={}, template_version="")
+        self.assertIn("template_version", self.messages(document)[0])
+
+    def test_runner_pointer_is_required(self):
+        """Указатель носителя порядка: без него исполнение идёт без порядка."""
+        document = self.document(runner_pointer=False)
+        self.assertEqual(
+            self.messages(document),
+            ["беклог не называет носителя порядка исполнения указателем"],
+        )
+
+
+class ExecutionRulesTest(unittest.TestCase):
+    """Правила полноты исполнения: отметки и подтверждения владельца."""
+
+    def test_unmarked_task_is_named(self):
+        document = MarkdownBacklog().parse(WHOLE_BACKLOG)
+        messages = [finding.message for finding in execution_findings(document)]
+        self.assertEqual(messages, ["задача 1.1 не отмечена", "задача 2.1 не отмечена"])
+
+    def test_executed_backlog_has_no_findings(self):
+        document = MarkdownBacklog().parse(executed(WHOLE_BACKLOG))
+        self.assertEqual(execution_findings(document), ())
+
+    def test_stop_sign_without_confirmation_is_named(self):
+        """Отметка утверждает исполнение, а следа подтверждения владельца в беклоге нет."""
+        text = WHOLE_BACKLOG.replace("- [ ]", "- [x]")
+        document = MarkdownBacklog().parse(text)
+        messages = [finding.message for finding in execution_findings(document)]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("confirmed.irreversible_step", messages[0])
+
+    def test_completion_marker_is_not_checked(self):
+        """Признак «выполнено ранее» описан прозой: его сверка остаётся исполняющему."""
+        document = MarkdownBacklog().parse(executed(WHOLE_BACKLOG))
+        self.assertTrue(all(task.has_completion_marker for task in document.tasks))
+        self.assertEqual(execution_findings(document), ())
+
+
+class MarkdownBacklogTest(unittest.TestCase):
+    """Разбор порождённого беклога: разметка остаётся здесь, а не в домене."""
+
+    def setUp(self):
+        self.document = MarkdownBacklog().parse(WHOLE_BACKLOG)
+
+    def test_reads_frontmatter_with_one_nesting_level(self):
+        self.assertTrue(self.document.frontmatter_parsed)
+        self.assertEqual(self.document.template_version, "1.1.0")
+        self.assertEqual(
+            self.document.frontmatter["confirmed.irreversible_step"], "null"
+        )
+
+    def test_reads_tasks_with_place_in_file(self):
+        numbers = [(task.number, task.line) for task in self.document.tasks]
+        self.assertEqual(numbers, [("1.1", 10), ("2.1", 13)])
+
+    def test_reads_stop_sign_and_confirmation_key(self):
+        stop = self.document.tasks[1]
+        self.assertTrue(stop.stop_sign)
+        self.assertEqual(stop.confirmation, "confirmed.irreversible_step")
+
+    def test_reads_runner_pointer_from_frontmatter(self):
+        self.assertTrue(self.document.runner_pointer)
+
+    def test_backlog_without_frontmatter_is_not_parsed(self):
+        document = MarkdownBacklog().parse("# Беклог без фронтматтера\n")
+        self.assertFalse(document.frontmatter_parsed)
+
+    def test_reads_leftover_with_place_in_file(self):
+        document = MarkdownBacklog().parse(
+            WHOLE_BACKLOG.replace("Первая задача", "Задача над {{target}}")
+        )
+        self.assertEqual(
+            [(item.line, item.text) for item in document.leftovers], [(10, "{{target}}")]
+        )
+
+
+class StoredBacklog:
+    """Заглушка чтения проверяемого беклога: текст без файла на диске."""
+
+    def __init__(self, text):
+        self._text = text
+        self.asked = []
+
+    def read(self, path):
+        self.asked.append(path)
+        return self._text
+
+
+class LintBacklogTest(unittest.TestCase):
+    """Сценарий структурной проверки."""
+
+    def test_whole_backlog_is_clean(self):
+        use_case = LintBacklogUseCase(
+            backlogs=StoredBacklog(WHOLE_BACKLOG), parser=MarkdownBacklog()
+        )
+        result = use_case.execute(LintBacklogInput(path="путь/tasks.md"))
+        self.assertEqual(result.outcome, CLEAN)
+        self.assertEqual(result.findings, ())
+
+    def test_defect_is_found(self):
+        text = WHOLE_BACKLOG.replace("  - Выполнено ранее: состояние уже таково\n", "")
+        use_case = LintBacklogUseCase(
+            backlogs=StoredBacklog(text), parser=MarkdownBacklog()
+        )
+        result = use_case.execute(LintBacklogInput(path="путь/tasks.md"))
+        self.assertEqual(result.outcome, FOUND)
+        self.assertIn("«выполнено ранее»", result.findings[0].message)
+
+    def test_path_comes_from_the_call(self):
+        """Адрес проверка не складывает: путь приходит значением вызова."""
+        backlogs = StoredBacklog(WHOLE_BACKLOG)
+        use_case = LintBacklogUseCase(backlogs=backlogs, parser=MarkdownBacklog())
+        use_case.execute(LintBacklogInput(path="след/операция/предмет/tasks.md"))
+        self.assertEqual(backlogs.asked, ["след/операция/предмет/tasks.md"])
+
+
+class VerifyBacklogTest(unittest.TestCase):
+    """Сценарий проверки полноты исполнения."""
+
+    def verify(self, text):
+        use_case = VerifyBacklogUseCase(
+            backlogs=StoredBacklog(text), parser=MarkdownBacklog()
+        )
+        return use_case.execute(VerifyBacklogInput(path="путь/tasks.md"))
+
+    def test_executed_backlog_is_whole(self):
+        result = self.verify(executed(WHOLE_BACKLOG))
+        self.assertEqual(result.outcome, EXECUTED)
+        self.assertEqual(result.findings, ())
+
+    def test_unmarked_task_makes_it_incomplete(self):
+        result = self.verify(WHOLE_BACKLOG)
+        self.assertEqual(result.outcome, INCOMPLETE)
+        self.assertEqual(result.structure, ())
+        self.assertEqual(len(result.execution), 2)
+
+    def test_structure_findings_come_first(self):
+        """Вердикт о полноте отметок осмыслен только на файле с целой грамматикой."""
+        text = executed(WHOLE_BACKLOG).replace('runner: "/backlog:backlog-run"\n', "")
+        result = self.verify(text)
+        self.assertEqual(result.outcome, INCOMPLETE)
+        self.assertIn("носителя порядка", result.findings[0].message)
+
+
+class GenerateRejectsDefectTest(unittest.TestCase):
+    """Структурная проверка внутри порождения: отказ до записи файла."""
+
+    class Templates:
+        def __init__(self, text):
+            self._text = text
+
+        def read(self, operation):
+            return "1.1.0", self._text
+
+    class Backlogs:
+        def __init__(self):
+            self.written = []
+
+        def exists(self, operation, subject):
+            return False
+
+        def add(self, backlog, text):
+            self.written.append(backlog.address)
+            return BACKLOG_WRITTEN
+
+    def generate(self, template_text):
+        self.backlogs = self.Backlogs()
+        use_case = GenerateBacklogUseCase(
+            templates=self.Templates(template_text),
+            backlogs=self.backlogs,
+            render=render,
+            parser=MarkdownBacklog(),
+        )
+        return use_case.execute(
+            GenerateBacklogInput(operation="проба", subject="20261012000000", values={})
+        )
+
+    def test_defect_refuses_before_write(self):
+        """У неудачи результата быть не должно: файл не заводится."""
+        text = WHOLE_BACKLOG.replace("  - Проверка: состояние названо\n", "")
+        result = self.generate(text)
+        self.assertEqual(result.outcome, REJECTED)
+        self.assertIn("не несёт строки проверки", result.findings[0].message)
+        self.assertEqual(self.backlogs.written, [])
+
+    def test_leftover_substitution_refuses_generation(self):
+        """Остаток подстановки ловит структурная проверка, а не рендер."""
+        result = self.generate(WHOLE_BACKLOG.replace("предметом", "{{subject}}"))
+        self.assertEqual(result.outcome, REJECTED)
+        self.assertIn("{{subject}}", result.findings[0].message)
+        self.assertEqual(self.backlogs.written, [])
+
+    def test_whole_template_is_written(self):
+        result = self.generate(WHOLE_BACKLOG)
+        self.assertEqual(self.backlogs.written, [("проба", "20261012000000")])
+
+
+class FileBacklogTest(unittest.TestCase):
+    """Чтение проверяемого беклога: отсутствие файла — ошибка вызова."""
+
+    def test_reads_lying_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "tasks.md"
+            target.write_text(WHOLE_BACKLOG, encoding="utf-8")
+            self.assertEqual(FileBacklog(fail).read(target), WHOLE_BACKLOG)
+
+    def test_refuses_absent_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(Refused) as refusal:
+                FileBacklog(fail).read(pathlib.Path(directory) / "нет.md")
+            self.assertIn("не найден", str(refusal.exception))
