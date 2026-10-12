@@ -1,4 +1,4 @@
-<!-- template_version: 1.2.0 -->
+<!-- template_version: 1.1.0 -->
 ---
 template_version: "{{template_version}}"
 generated: "{{date}}"
