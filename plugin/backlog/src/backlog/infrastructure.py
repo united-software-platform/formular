@@ -1,4 +1,4 @@
-"""Файл беклога и файлы поставки: шаблон, рендер, каталог беклогов, состав установки.
+"""Файл беклога и файлы поставки: шаблон, рендер, каталог беклогов, нормы поставки.
 
 Адаптер знает всё, чего не знает домен: маркер версии первой строкой шаблона, грамматику
 условных блоков и подстановок, вид значения во фронтматтере, путь файла в каталоге беклогов.
@@ -9,24 +9,16 @@
 и в порождённый беклог не попадает: он отвечает прогону, каким составом задач беклог
 порождён, а не читателю беклога.
 
-Здесь же адаптеры установки: состав поставки, дерево целевого проекта и манифест
-установленного. Слепок считается от текста, а не от байтов файла: состав поставки —
-документы, и перенос их строк не должен выглядеть правкой потребителя.
+Здесь же чтение норм, глоссария и образца из каталога поставки: они существуют в одном
+экземпляре — в поставке, — и вход выдаёт их текстом в контекст вызова, а не копирует
+в дерево проекта.
 """
 
 import dataclasses
-import hashlib
-import json
 import pathlib
 import re
 
-from .application import (
-    DeliverySource,
-    DocumentParser,
-    Installed,
-    ManifestStore,
-    ProjectTree,
-)
+from .application import DocumentParser
 from .domain import (
     BACKLOG_EXISTS,
     BACKLOG_WRITTEN,
@@ -59,7 +51,7 @@ STOP_SIGN_MARK = "Стоп-знак"
 CONFIRMATION_PATTERN = r"confirmed\.[A-Za-z0-9_.]+"
 VERSION_TABLE_HEADING = "## Версионирование"
 RUNNER_KEY = "runner"
-RULE_ANCHOR_PATTERN = r"\]\([^)\s]*#(?P<anchor>[^)\s]+)\)"
+RULE_CODE_PATTERN = r"\bBKL-[0-9]{3}\b"
 TEMPLATE_VERSION_KEY = "template_version"
 
 
@@ -282,13 +274,13 @@ def _leftovers(lines):
     return tuple(found)
 
 
-def _rule_anchors(lines):
-    """Якоря ссылок вида `](...#якорь)`: по ним видно, на какие разделы беклог ссылается."""
+def _rule_codes(lines):
+    """Коды правил, названные в тексте: текстом ссылки прежнего вида либо рядом с вызовом."""
     found = []
     for line in lines:
-        for match in re.finditer(RULE_ANCHOR_PATTERN, line):
-            if match.group("anchor") not in found:
-                found.append(match.group("anchor"))
+        for match in re.finditer(RULE_CODE_PATTERN, line):
+            if match.group(0) not in found:
+                found.append(match.group(0))
     return tuple(found)
 
 
@@ -322,7 +314,7 @@ class MarkdownBacklog(DocumentParser):
             runner_pointer=bool(values.get(RUNNER_KEY, "")),
             version_table=_version_table(lines),
             leftovers=_leftovers(lines),
-            rule_anchors=_rule_anchors(lines),
+            rule_codes=_rule_codes(lines),
         )
 
 
@@ -387,167 +379,79 @@ class FileBacklogs(BacklogRepository):
         return BACKLOG_WRITTEN
 
 
-# Имя манифеста установленного в дереве целевого проекта.
-MANIFEST_NAME = ".backlog-manifest.json"
+# Состав поставки, который вход выдаёт текстом: пути от корня поставки.
+NORMS_PATH = "share/rules/operation-backlog-rules.md"
+GLOSSARY_PATH = "share/docs/glossary.md"
+SAMPLE_PATH = "templates/sample-operation.md"
+
+# Разбор норм по правилу: заголовок раздела и абзац, открытый кодом правила.
+HEADING_PATTERN = r"^(?P<level>#+)\s"
+RULE_OPENING = "**[%s]**"
 
 
-def digest(text):
-    """Слепок текста: им сверяется лежащий файл с источником и с записью манифеста."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def rule_section(text, code):
+    """Раздел норм, несущий правило с названным кодом, либо None.
 
-
-@dataclasses.dataclass(frozen=True)
-class DeliveryItem:
-    """Файл состава поставки: путь в проекте, текст и слепок."""
-
-    path: str
-    text: str
-
-    @property
-    def digest(self):
-        return digest(self.text)
-
-
-@dataclasses.dataclass(frozen=True)
-class ImportLine:
-    """Строка подключения: файл проекта, текст строки и строка, после которой дописывать."""
-
-    path: str
-    text: str
-    after: str = ""
-
-
-class FileDelivery(DeliverySource):
-    """Состав поставки, лежащий в каталоге поставки.
-
-    Каталог состава повторяет раскладку целевого проекта, поэтому относительные ссылки
-    между файлами состава разрешаются и в поставке, и после установки — одним и тем же
-    путём, без правки текста при копировании.
+    Правило ищется по коду `**[BKL-NNN]**` в начале абзаца, а раздел — от заголовка,
+    его содержащего, до следующего заголовка того же или старшего уровня. Код, упомянутый
+    в тексте другого правила, раздела не открывает: упоминание — ссылка, а не правило.
     """
+    lines = text.splitlines()
+    opening = RULE_OPENING % code
+    at = next(
+        (number for number, line in enumerate(lines) if line.startswith(opening)), None
+    )
+    if at is None:
+        return None
 
-    def __init__(self, directory, extra=(), fail=None):
-        self._directory = directory
-        self._extra = tuple(extra)
-        self._fail = fail or (lambda message: None)
+    start = 0
+    level = 1
+    for number in range(at, -1, -1):
+        match = re.match(HEADING_PATTERN, lines[number])
+        if match:
+            start, level = number, len(match.group("level"))
+            break
 
-    def items(self):
-        """Состав поставки: файлы каталога состава и названные отдельно."""
-        found = []
-        for path in sorted(self._directory.rglob("*")):
-            if path.is_file():
-                found.append((str(path.relative_to(self._directory)), path))
-        found.extend(self._extra)
+    end = len(lines)
+    for number in range(at + 1, len(lines)):
+        match = re.match(HEADING_PATTERN, lines[number])
+        if match and len(match.group("level")) <= level:
+            end = number
+            break
 
-        collected = []
-        for relative, source in found:
-            try:
-                collected.append(DeliveryItem(path=relative, text=source.read_text(encoding="utf-8")))
-            except OSError as error:
-                self._fail(f"состав поставки не читается: {source}: {error}")
-        return tuple(collected)
+    section = lines[start:end]
+    while section and section[-1].strip() in ("", "---"):
+        section.pop()
+    return "\n".join(section) + "\n"
 
 
-class FileProject(ProjectTree):
-    """Дерево целевого проекта: слепки лежащих файлов, запись и строки подключения."""
+class DeliveryFiles:
+    """Нормы, глоссарий и образцовый шаблон, лежащие в каталоге поставки.
+
+    Корень поставки приходит значением: вход находит его сам от места пакета, потому что
+    переменные каталога поставки прогонам инструмента не достаются.
+    """
 
     def __init__(self, root, fail):
         self._root = root
         self._fail = fail
 
-    def path_of(self, path):
-        """Путь файла в дереве проекта."""
-        return self._root / path
-
-    def digest_of(self, path):
-        """Слепок лежащего файла либо None, если файла нет."""
-        target = self.path_of(path)
-        if not target.exists():
-            return None
+    def _read(self, relative):
+        path = self._root / relative
         try:
-            return digest(target.read_text(encoding="utf-8"))
+            return path.read_text(encoding="utf-8")
         except OSError as error:
-            self._fail(f"файл проекта не читается: {target}: {error}")
+            self._fail(f"файл поставки не читается: {path}: {error}")
+        return ""
 
-    def write(self, path, text):
-        """Пишет файл проекта, заводя каталоги по пути."""
-        target = self.path_of(path)
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
-        except OSError as error:
-            self._fail(f"файл проекта не записывается: {target}: {error}")
+    def norms(self):
+        """Нормы беклога, за ними глоссарий: без глоссария понятия норм не определены."""
+        return self._read(NORMS_PATH).rstrip("\n") + "\n\n" + self._read(GLOSSARY_PATH)
 
-    def has_line(self, path, text):
-        """Есть ли в файле проекта названная строка: повторное дописывание её не удваивает."""
-        target = self.path_of(path)
-        if not target.exists():
-            return False
-        try:
-            return text in target.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
-            self._fail(f"файл проекта не читается: {target}: {error}")
+    def rule(self, code):
+        """Раздел норм с названным правилом либо None, если такого кода в нормах нет."""
+        return rule_section(self._read(NORMS_PATH), code)
 
-    def add_line(self, path, text, after):
-        """Дописывает строку — после названной строки, а без неё в конец файла."""
-        target = self.path_of(path)
-        try:
-            lines = target.read_text(encoding="utf-8").splitlines() if target.exists() else []
-            if after and after in lines:
-                lines.insert(lines.index(after) + 1, text)
-            else:
-                lines.append(text)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        except OSError as error:
-            self._fail(f"строка подключения не дописывается: {target}: {error}")
-
-
-class FileManifest(ManifestStore):
-    """Манифест установленного в дереве целевого проекта.
-
-    Манифест — единственный источник ответа на вопрос «что и какой версией установлено»:
-    без него повторный прогон не отличает файл, положенный поставкой, от файла, который
-    написал потребитель.
-    """
-
-    def __init__(self, root, fail):
-        self._path = root / MANIFEST_NAME
-        self._fail = fail
-
-    @property
-    def path(self):
-        return self._path
-
-    def read(self):
-        """Установленное прежде. Манифеста нет — установки не было."""
-        if not self._path.exists():
-            return Installed()
-        try:
-            stored = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            self._fail(f"манифест установленного не читается: {self._path}: {error}")
-            return Installed()
-        return Installed(
-            version=stored.get("delivery_version", ""),
-            files={
-                item["path"]: item.get("sha256", "")
-                for item in stored.get("files", ())
-                if isinstance(item, dict) and "path" in item
-            },
-        )
-
-    def write(self, version, installed_at, files):
-        """Записывает манифест установленного."""
-        document = {
-            "delivery_version": version,
-            "installed_at": installed_at,
-            "files": [
-                {"path": path, "sha256": files[path]} for path in sorted(files)
-            ],
-        }
-        try:
-            self._path.write_text(
-                json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
-        except OSError as error:
-            self._fail(f"манифест установленного не записывается: {self._path}: {error}")
+    def sample(self):
+        """Образцовый шаблон операции — текстом, пригодным к записи в каталог шаблонов."""
+        return self._read(SAMPLE_PATH)

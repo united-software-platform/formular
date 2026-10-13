@@ -1,8 +1,8 @@
-"""Слой приложения модуля беклога: сценарии порождения, проверки и установки, контракты чтения.
+"""Слой приложения модуля беклога: сценарии порождения и проверки, контракты чтения.
 
-Сценариев здесь пять: порождение беклога названной операции над названным предметом,
-приёмка шаблона операции по всем сочетаниям признаков, структурная проверка лежащего беклога,
-проверка полноты его исполнения и установка состава поставки в дерево целевого проекта.
+Сценариев здесь четыре: порождение беклога названной операции над названным предметом,
+приёмка шаблона операции по всем сочетаниям признаков, структурная проверка лежащего беклога
+и проверка полноты его исполнения.
 Операции, знающие свои значения и свои предусловия, живут снаружи — они собирают вызов
 и передают сценарию готовые значения, потому что вид значения во фронтматтере есть
 свойство носителя, а не сценария.
@@ -11,10 +11,7 @@
 from .contracts import (
     BacklogLookup,
     BacklogSource,
-    DeliverySource,
     DocumentParser,
-    ManifestStore,
-    ProjectTree,
     TemplateSource,
 )
 from .generate_backlog import (
@@ -49,19 +46,6 @@ from .verify_backlog import (
     VerifyBacklogOutput,
     VerifyBacklogUseCase,
 )
-from .install_rules import (
-    ALREADY_INSTALLED,
-    CONFLICT,
-    INSTALLED,
-    LINE_ADDED,
-    LINE_PRESENT,
-    UPDATED,
-    Installed,
-    InstallRulesInput,
-    InstallRulesOutput,
-    InstallRulesUseCase,
-)
-
 __all__ = [
     "BacklogLookup",
     "BacklogSource",
@@ -91,17 +75,4 @@ __all__ = [
     "VerifyBacklogUseCase",
     "EXECUTED",
     "INCOMPLETE",
-    "DeliverySource",
-    "ProjectTree",
-    "ManifestStore",
-    "Installed",
-    "InstallRulesInput",
-    "InstallRulesOutput",
-    "InstallRulesUseCase",
-    "INSTALLED",
-    "ALREADY_INSTALLED",
-    "UPDATED",
-    "CONFLICT",
-    "LINE_ADDED",
-    "LINE_PRESENT",
 ]

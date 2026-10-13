@@ -1,4 +1,4 @@
-"""Проверки ядра беклога: грамматика шаблона, маркер версии, запись, проверки и установка.
+"""Проверки ядра беклога: грамматика шаблона, маркер версии, запись, проверки и выдача норм.
 
 Проверяется то, в чём дефект тих: рендер оставит лишнюю задачу, маркер версии пропадёт,
 повторная запись перезапишет состоявшийся файл, задача уйдёт в беклог без признака
@@ -12,6 +12,7 @@ import contextlib
 import io
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -27,11 +28,7 @@ from backlog import (  # noqa: E402
     BacklogTask,
     FileBacklog,
     FileBacklogs,
-    FileDelivery,
-    FileManifest,
-    FileProject,
     FileTemplates,
-    ImportLine,
     Leftover,
     MarkdownBacklog,
     execution_findings,
@@ -41,29 +38,21 @@ from backlog import (  # noqa: E402
     structure_findings,
     template_grammar,
 )
-from backlog.__main__ import main  # noqa: E402
+from backlog.__main__ import _project_root, main  # noqa: E402
 from backlog.application import (  # noqa: E402
     ACCEPTED,
-    ALREADY_INSTALLED,
     DEFECTIVE,
     TOO_MANY_FLAGS,
     CheckTemplateInput,
     CheckTemplateUseCase,
     CLEAN,
-    CONFLICT,
     EXECUTED,
     FOUND,
     GENERATED,
     INCOMPLETE,
-    INSTALLED,
-    LINE_ADDED,
-    LINE_PRESENT,
     REJECTED,
-    UPDATED,
     GenerateBacklogInput,
     GenerateBacklogUseCase,
-    InstallRulesInput,
-    InstallRulesUseCase,
     LintBacklogInput,
     LintBacklogUseCase,
     VerifyBacklogInput,
@@ -200,116 +189,6 @@ class FileBacklogsTest(unittest.TestCase):
             self.assertTrue(backlogs.exists("sample-operation", "20261008120000"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-class InstallRulesTest(unittest.TestCase):
-    """Установка состава поставки: идемпотентность, расхождение и строки подключения.
-
-    Проверяется то, в чём дефект тих: повторный прогон перепишет манифест временем
-    установки, расхождение потеряет запись о том, чем файл ставился, строка подключения
-    удвоится — ни одно из трёх не заявит о себе само.
-    """
-
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        base = pathlib.Path(self.temporary.name)
-        self.share = base / "share"
-        self.project = base / "project"
-        (self.share / "rules").mkdir(parents=True)
-        (self.share / "rules" / "norm.md").write_text("норма\n", encoding="utf-8")
-        self.project.mkdir()
-        self.addCleanup(self.temporary.cleanup)
-
-    def _run(self, version="1.0.0", installed_at="2026-10-09T00:00:00Z", lines=()):
-        use_case = InstallRulesUseCase(
-            delivery=FileDelivery(self.share, fail=fail),
-            project=FileProject(self.project, fail),
-            manifest=FileManifest(self.project, fail),
-        )
-        return use_case.execute(
-            InstallRulesInput(
-                delivery_version=version, installed_at=installed_at, lines=lines
-            )
-        )
-
-    def test_installs_absent_file(self):
-        result = self._run()
-        self.assertEqual([item.outcome for item in result.files], [INSTALLED])
-        self.assertEqual(
-            (self.project / "rules" / "norm.md").read_text(encoding="utf-8"), "норма\n"
-        )
-
-    def test_repeated_run_leaves_state_untouched(self):
-        self._run()
-        manifest = self.project / FileManifest(self.project, fail).path.name
-        before = manifest.read_text(encoding="utf-8")
-
-        result = self._run(installed_at="2026-12-31T23:59:59Z")
-
-        self.assertEqual([item.outcome for item in result.files], [ALREADY_INSTALLED])
-        self.assertEqual(manifest.read_text(encoding="utf-8"), before)
-
-    def test_updates_file_left_as_installed(self):
-        self._run()
-        (self.share / "rules" / "norm.md").write_text("норма, правленная поставкой\n", encoding="utf-8")
-
-        result = self._run()
-
-        self.assertEqual([item.outcome for item in result.files], [UPDATED])
-        self.assertEqual(
-            (self.project / "rules" / "norm.md").read_text(encoding="utf-8"),
-            "норма, правленная поставкой\n",
-        )
-
-    def test_consumer_edit_is_not_overwritten(self):
-        self._run()
-        edited = self.project / "rules" / "norm.md"
-        edited.write_text("норма, правленная потребителем\n", encoding="utf-8")
-
-        result = self._run()
-
-        self.assertEqual([item.outcome for item in result.files], [CONFLICT])
-        self.assertEqual(len(result.conflicts), 1)
-        self.assertEqual(
-            edited.read_text(encoding="utf-8"), "норма, правленная потребителем\n"
-        )
-
-    def test_conflict_keeps_manifest_record(self):
-        self._run()
-        remembered = FileManifest(self.project, fail).read().files["rules/norm.md"]
-        (self.project / "rules" / "norm.md").write_text("правка потребителя\n", encoding="utf-8")
-
-        self._run()
-
-        kept = FileManifest(self.project, fail).read().files["rules/norm.md"]
-        self.assertEqual(kept, remembered)
-
-    def test_import_line_is_added_once(self):
-        line = ImportLine(path="CLAUDE.md", text="@rules/norm.md")
-
-        first = self._run(lines=(line,))
-        second = self._run(lines=(line,))
-
-        self.assertEqual([item.outcome for item in first.lines], [LINE_ADDED])
-        self.assertEqual([item.outcome for item in second.lines], [LINE_PRESENT])
-        self.assertEqual(
-            (self.project / "CLAUDE.md").read_text(encoding="utf-8").count("@rules/norm.md"), 1
-        )
-
-    def test_import_line_goes_after_named_line(self):
-        (self.project / "CLAUDE.md").write_text("@rules/a.md\n@rules/b.md\n", encoding="utf-8")
-        line = ImportLine(path="CLAUDE.md", text="@rules/norm.md", after="@rules/a.md")
-
-        self._run(lines=(line,))
-
-        self.assertEqual(
-            (self.project / "CLAUDE.md").read_text(encoding="utf-8").splitlines(),
-            ["@rules/a.md", "@rules/norm.md", "@rules/b.md"],
-        )
-
-
 # Беклог, отвечающий структуре целиком: от него отступают проверки структурных правил.
 WHOLE_BACKLOG = """---
 template_version: "1.1.0"
@@ -350,12 +229,24 @@ def executed(text):
 
 
 RUNNER = "/backlog:backlog-run"
-NORM_ANCHORS = (
-    "самодостаточность-значений",
-    "признак-исполнения",
-    "стоп-знак-необратимой-задачи",
-    "передача-исполнения",
-)
+NORM_CODES = ("BKL-005", "BKL-006", "BKL-007", "BKL-008")
+
+
+def coded(text):
+    """Тот же беклог, но нормы названы кодом и вызовом входа, без ссылок на файл норм."""
+    for code, anchor in zip(
+        NORM_CODES,
+        (
+            "самодостаточность-значений",
+            "признак-исполнения",
+            "стоп-знак-необратимой-задачи",
+            "передача-исполнения",
+        ),
+    ):
+        text = text.replace(
+            f"[{code}](../rules.md#{anchor})", f"{code} (`backlog norms --rule {code}`)"
+        )
+    return text
 SELF_CHECK_TASK = BacklogTask(
     number="1.2",
     line=13,
@@ -387,7 +278,7 @@ class StructureRulesTest(unittest.TestCase):
             ),
             runner_pointer=True,
             version_table=True,
-            rule_anchors=NORM_ANCHORS,
+            rule_codes=NORM_CODES,
         )
         base.update(changed)
         return BacklogDocument(**base)
@@ -489,10 +380,31 @@ class StructureRulesTest(unittest.TestCase):
         self.assertIn("backlog lint", messages[0])
 
     def test_backlog_without_stop_sign_norm_is_named(self):
-        anchors = tuple(a for a in NORM_ANCHORS if a != "стоп-знак-необратимой-задачи")
-        messages = self.messages(self.document(rule_anchors=anchors))
+        codes = tuple(code for code in NORM_CODES if code != "BKL-007")
+        messages = self.messages(self.document(rule_codes=codes))
         self.assertEqual(len(messages), 1)
-        self.assertIn("#стоп-знак-необратимой-задачи", messages[0])
+        self.assertIn("BKL-007", messages[0])
+        self.assertIn("стоп-знак", messages[0])
+
+    def test_norm_named_by_code_without_link(self):
+        """Беклог называет нормы кодом и вызовом входа: ссылок на файл норм нет."""
+        text = coded(WHOLE_BACKLOG)
+        self.assertNotIn("rules.md", text)
+        self.assertEqual(structure_findings(MarkdownBacklog().parse(text)), ())
+
+    def test_norm_named_by_code_in_link_of_former_kind(self):
+        """Прежний беклог несёт коды текстом ссылок, и файла по ссылке нет: адрес не сверяется."""
+        self.assertIn("](../rules.md#признак-исполнения)", WHOLE_BACKLOG)
+        self.assertEqual(structure_findings(MarkdownBacklog().parse(WHOLE_BACKLOG)), ())
+
+    def test_backlog_without_any_norm_code_is_named(self):
+        text = coded(WHOLE_BACKLOG).replace("BKL-007", "норма стоп-знака")
+        messages = [
+            finding.message
+            for finding in structure_findings(MarkdownBacklog().parse(text))
+        ]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("BKL-007", messages[0])
 
     def test_first_task_without_runner_is_named(self):
         document = self.document(
@@ -621,9 +533,15 @@ class SampleParseTest(unittest.TestCase):
         self.assertIn("/backlog:backlog-run", first.text)
         self.assertIn("backlog lint", self.document.tasks[1].text)
 
-    def test_reads_rule_anchors(self):
-        for anchor in NORM_ANCHORS:
-            self.assertIn(anchor, self.document.rule_anchors)
+    def test_reads_rule_codes(self):
+        for code in NORM_CODES:
+            self.assertIn(code, self.document.rule_codes)
+
+    def test_names_norms_by_call_without_rules_file(self):
+        _, text = load_template(DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md", fail)
+        self.assertNotIn("{{rules}}", text)
+        for code in NORM_CODES:
+            self.assertIn(f"backlog norms --rule {code}", text)
 
 
 class StoredBacklog:
@@ -823,7 +741,6 @@ def _sample_values():
         "operation": SAMPLE_OPERATION,
         "subject": "проба",
         "runner": "/backlog:backlog-run",
-        "rules": "../../../rules/operation-backlog-rules.md",
         "target": "предмет операции",
         "target_scalar": scalar("предмет операции"),
     }
@@ -952,3 +869,189 @@ class CheckTemplateEntryTest(unittest.TestCase):
         self.assertIn("[host-part снят]", output)
         self.assertIn("расхождений 1", output.splitlines()[-1])
         self.assertEqual(list(self.root.iterdir()), [])
+
+
+# Каталог поставки и её вход: вход запускается так же, как его запускает платформа.
+DELIVERY_ROOT = DELIVERY_TEMPLATES.parent
+DELIVERY_ENTRY = DELIVERY_ROOT / "bin" / "backlog"
+RULE_CODES = tuple(f"BKL-{number:03d}" for number in range(1, 11))
+
+
+class EntryCase(unittest.TestCase):
+    """Вход в изолированном проекте: корень проекта, каталог шаблонов и каталог следа."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.base = pathlib.Path(self.temporary.name)
+        self.templates = self.base / "templates"
+        self.templates.mkdir()
+        self.root = self.base / "backlog"
+
+    def run_entry(self, *argv):
+        """Исполняет вход; отказ входа завершает его SystemExit — код берётся из него."""
+        environment = {
+            "CLAUDE_PROJECT_DIR": str(self.base),
+            "BACKLOG_TEMPLATES": str(self.templates),
+            "BACKLOG_ROOT": str(self.root),
+        }
+        with mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(
+            io.StringIO()
+        ) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            try:
+                code = main(list(argv))
+            except SystemExit as exit_:
+                code = exit_.code
+        self.out, self.err = out.getvalue(), err.getvalue()
+        return code
+
+
+class NormsEntryTest(EntryCase):
+    """Выдача норм, глоссария и образца входом: канал внешнего вызова."""
+
+    def test_norms_carry_rules_and_glossary(self):
+        self.assertEqual(self.run_entry("norms"), 0, self.err)
+        self.assertIn("# Правила беклога операции", self.out)
+        self.assertIn("# Глоссарий понятий проекта", self.out)
+        self.assertLess(
+            self.out.index("# Правила беклога операции"),
+            self.out.index("# Глоссарий понятий проекта"),
+        )
+
+    def test_each_rule_is_given_alone(self):
+        for code in RULE_CODES:
+            with self.subTest(code=code):
+                self.assertEqual(self.run_entry("norms", "--rule", code), 0, self.err)
+                self.assertIn(f"**[{code}]**", self.out)
+                self.assertTrue(self.out.startswith("## "), self.out[:40])
+                others = [
+                    other for other in RULE_CODES
+                    if other != code and f"**[{other}]**" in self.out
+                ]
+                self.assertEqual(others, [])
+                self.assertNotIn("## Версионирование", self.out)
+
+    def test_unknown_rule_is_refused(self):
+        self.assertEqual(self.run_entry("norms", "--rule", "BKL-999"), 2)
+        self.assertIn("BKL-999", self.err)
+        self.assertEqual(self.out, "")
+
+    def test_sample_starts_with_version_marker_and_is_accepted(self):
+        self.assertEqual(self.run_entry("sample"), 0, self.err)
+        self.assertTrue(self.out.startswith("<!-- template_version: "), self.out[:40])
+
+        written = self.templates / f"{SAMPLE_OPERATION}.md"
+        written.write_text(self.out, encoding="utf-8")
+        self.assertEqual(self.run_entry("check-template", str(written)), 0, self.err)
+        self.assertIn("расхождений 0", self.out)
+
+    def test_help_names_norms_sample_and_ignore_advice(self):
+        result = subprocess.run(
+            ["sh", str(DELIVERY_ENTRY), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for word in ("norms", "sample", "--rule", ".gitignore", "backlog/*"):
+            self.assertIn(word, result.stdout)
+        self.assertNotIn("install", result.stdout)
+
+
+class GenerateEntryTest(EntryCase):
+    """Вход порождения: подстановка без значения, рекомендация для .gitignore."""
+
+    def write_sample(self, text=None):
+        source = DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md"
+        target = self.templates / f"{SAMPLE_OPERATION}.md"
+        target.write_text(
+            text if text is not None else source.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+    def generate(self, subject="проба"):
+        return self.run_entry(
+            "generate", "--operation", SAMPLE_OPERATION, "--subject", subject,
+            "--value", "target=предмет", "--no-flag", "host-part",
+        )
+
+    def test_rules_substitution_is_refused(self):
+        """Прежняя подстановка ссылки на нормы значения не получает: порождение отказывает."""
+        text = (DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md").read_text(encoding="utf-8")
+        self.write_sample(text.replace("по порядку.", "по порядку ({{rules}}).", 1))
+        self.assertEqual(self.generate(), 2)
+        self.assertIn("{{rules}}", self.err)
+        self.assertFalse(self.root.exists())
+
+    def test_fresh_root_prints_ignore_advice(self):
+        gitignore = self.base / ".gitignore"
+        gitignore.write_text("__pycache__/\n", encoding="utf-8")
+        self.write_sample()
+        self.assertEqual(self.generate(), 0, self.err)
+        self.assertTrue((self.root / SAMPLE_OPERATION / "проба" / "tasks.md").is_file())
+        self.assertIn(".gitignore", self.err)
+        self.assertIn("`backlog/*`", self.err)
+        self.assertEqual(gitignore.read_text(encoding="utf-8"), "__pycache__/\n")
+
+    def test_lying_root_prints_no_advice(self):
+        self.root.mkdir()
+        self.write_sample()
+        self.assertEqual(self.generate(), 0, self.err)
+        self.assertNotIn(".gitignore", self.err)
+        self.assertFalse((self.base / ".gitignore").exists())
+
+
+class ProjectRootTest(unittest.TestCase):
+    """Корень проекта: маркер системы контроля версий, найденный вверх от рабочего каталога."""
+
+    def test_root_is_found_by_git_from_subdirectory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory).resolve()
+            (base / ".git").mkdir()
+            nested = base / "a" / "b"
+            nested.mkdir(parents=True)
+            previous = os.getcwd()
+            environment = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+            try:
+                os.chdir(nested)
+                with mock.patch.dict(os.environ, environment, clear=True):
+                    self.assertEqual(_project_root(), base)
+            finally:
+                os.chdir(previous)
+
+
+class DeliveryEntryTest(unittest.TestCase):
+    """Вход поставки: носитель порядка по умолчанию — навык плагина."""
+
+    def test_generated_backlog_names_plugin_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            (base / "templates").mkdir()
+            (base / "templates" / f"{SAMPLE_OPERATION}.md").write_text(
+                (DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            environment = {
+                k: v for k, v in os.environ.items()
+                if not k.startswith("BACKLOG_") and k != "CLAUDE_PROJECT_DIR"
+            }
+            environment["CLAUDE_PROJECT_DIR"] = str(base)
+            result = subprocess.run(
+                [
+                    "sh", str(DELIVERY_ENTRY), "generate", "--operation", SAMPLE_OPERATION,
+                    "--subject", "проба", "--value", "target=предмет", "--flag", "host-part",
+                ],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            text = (base / "backlog" / SAMPLE_OPERATION / "проба" / "tasks.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('runner: "/backlog:backlog-run"', text)
+
+
+if __name__ == "__main__":
+    unittest.main()

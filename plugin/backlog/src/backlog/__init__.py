@@ -12,7 +12,8 @@
 
 Слои внутри модуля: `domain` — беклог как агрегат, контракт записи и правила того, чем беклог
 обязан быть, `application` — сценарии порождения и проверки с контрактами чтения,
-`infrastructure` — шаблон, рендер, разбор порождённого беклога и каталог беклогов.
+`infrastructure` — шаблон, рендер, разбор порождённого беклога, каталог беклогов и чтение
+норм поставки.
 """
 
 from .domain import (
@@ -29,21 +30,16 @@ from .domain import (
 )
 from .infrastructure import (
     BACKLOG_NAME,
-    MANIFEST_NAME,
     TEMPLATE_VERSION_PATTERN,
-    DeliveryItem,
+    DeliveryFiles,
     FileBacklog,
     FileBacklogs,
-    FileDelivery,
-    FileManifest,
-    FileProject,
     FileTemplates,
-    ImportLine,
     MarkdownBacklog,
     TemplateGrammar,
-    digest,
     load_template,
     render,
+    rule_section,
     scalar,
     template_grammar,
 )
@@ -70,11 +66,6 @@ __all__ = [
     "TemplateGrammar",
     "BACKLOG_NAME",
     "TEMPLATE_VERSION_PATTERN",
-    "FileDelivery",
-    "FileProject",
-    "FileManifest",
-    "DeliveryItem",
-    "ImportLine",
-    "MANIFEST_NAME",
-    "digest",
+    "DeliveryFiles",
+    "rule_section",
 ]

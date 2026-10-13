@@ -4,6 +4,16 @@
 жёсткие предположения о раскладке, варианты поставки по первичным источникам и рекомендуемое
 решение с шагами внедрения.
 
+> **Внимание:** часть рекомендации пересмотрена изменением OpenSpec `deliver-norms-via-plugin`
+> (2026-10-13). Механизм по-прежнему поставляется плагином, но установочный прогон норм
+> (`backlog install`), манифест `.backlog-manifest.json` и копии норм, глоссария, описания
+> каталога следа и образца в дереве проекта упразднены: нормы, глоссарий и образец лежат только
+> в поставке, навыки адресуют их от корня плагина, а внешнему вызову их печатают `backlog norms`
+> и `backlog sample`. Действующее описание — в [README](../../README.md) и нормах
+> [`BKL-002`](../../plugin/backlog/share/rules/operation-backlog-rules.md#адрес-беклога)
+> и [`BKL-008`](../../plugin/backlog/share/rules/operation-backlog-rules.md#передача-исполнения).
+> Пути файлов и номера строк ниже записывают состояние репозитория на 2026-10-09.
+
 ---
 
 ## Навигация
@@ -46,9 +56,9 @@ Claude Code в этом окружении — `2.1.266` (вывод `claude --v
 | Что | Где сейчас | Почему обязано |
 |-----|-----------|----------------|
 | Ядро: домен, сценарий порождения, адаптеры | `src/backlog/` | Без него порождать нечем |
-| Вход командной строки | `tools/backlog/backlog.sh` | Единственная точка вызова порождения ([BKL-003](../../rules/operation-backlog-rules.md#порождение-прогоном)) |
+| Вход командной строки | `tools/backlog/backlog.sh` | Единственная точка вызова порождения ([BKL-003](../../plugin/backlog/share/rules/operation-backlog-rules.md#порождение-прогоном)) |
 | Сборка окружения интерпретатора | `tools/lib/python-env.sh` | Подключается входом: `tools/backlog/backlog.sh:17` |
-| Носитель порядка исполнения | `.claude/skills/backlog-run/SKILL.md` | [BKL-008](../../rules/operation-backlog-rules.md#передача-исполнения) требует загрузки носителя перед первой задачей |
+| Носитель порядка исполнения | `.claude/skills/backlog-run/SKILL.md` | [BKL-008](../../plugin/backlog/share/rules/operation-backlog-rules.md#передача-исполнения) требует загрузки носителя перед первой задачей |
 | Нормы беклога | `rules/operation-backlog-rules.md` | `BKL-001`..`BKL-009`; подключаются `@`-импортом из `CLAUDE.md:42` |
 | Понятия | `docs/glossary.md` | Единственный источник определений по [TERM-001](../../rules/terminology.md#единый-источник-определения); подключён из `CLAUDE.md:24` |
 | Описание адреса каталога следа | `backlog/README.md` | Навык ссылается на него: `.claude/skills/backlog-run/SKILL.md:54` |
@@ -132,7 +142,7 @@ allowed-tools: Bash(sh tools/backlog/backlog.sh:*), Bash(python3:*), ...
 `src/backlog/__main__.py:117-126` задаёт `--root` = `backlog` и `--templates` = `templates`;
 `src/backlog/__main__.py:152-153` превращает их в `pathlib.Path` без привязки к корню проекта.
 Значит умолчания верны лишь тогда, когда прогон запущен из корня проекта. Это не дефект — корень
-следа объявлен значением вызова ([BKL-002](../../rules/operation-backlog-rules.md#адрес-беклога)), —
+следа объявлен значением вызова ([BKL-002](../../plugin/backlog/share/rules/operation-backlog-rules.md#адрес-беклога)), —
 но при импорте умолчание придётся связать с корнем проекта явно.
 
 ### Строка-указатель носителя порядка вшита в шаблон
@@ -141,7 +151,7 @@ allowed-tools: Bash(sh tools/backlog/backlog.sh:*), Bash(python3:*), ...
 `.claude/skills/backlog-run/SKILL.md`, и это значение дословно попадает в порождённый беклог —
 `backlog/sample-operation/20261008195216/tasks.md:24,41`. При поставке навыка плагином путь
 становится другим (навык вызывается как `/<плагин>:backlog-run`), а порождённое задним числом
-не правится по [BKL-004](../../rules/operation-backlog-rules.md#порождённое-не-правится).
+не правится по [BKL-004](../../plugin/backlog/share/rules/operation-backlog-rules.md#порождённое-не-правится).
 
 ### Ссылки шаблона ломаются уже сейчас
 
@@ -706,6 +716,10 @@ Compose, интерполяция `${VAR:-default}`, инструкции `ENTRY
 
 ## Рекомендуемое решение
 
+> **Внимание:** установочный прогон норм из этой рекомендации упразднён изменением
+> `deliver-norms-via-plugin` — см. пометку в начале документа. Остальное — плагин как способ
+> поставки механизма — действует.
+
 **Разделить поставку на два носителя по природе ограничения: механизм — плагином Claude Code
 из своего marketplace в этом репозитории; нормы, понятия, точки подключения, каталог шаблонов
 и каталог следа — установочным прогоном в дерево целевого проекта по модели
@@ -758,11 +772,11 @@ plugin/backlog/
 - Критерий **а** закрыт единственным возможным способом: нормы лежат в дереве проекта, импорт
   относительный, диалога одобрения внешних импортов нет. Единственность носителя сохранена —
   навык плагина не пересказывает норму, а адресует её через `${CLAUDE_PROJECT_DIR}`, как
-  требует [BKL-008](../../rules/operation-backlog-rules.md#передача-исполнения).
+  требует [BKL-008](../../plugin/backlog/share/rules/operation-backlog-rules.md#передача-исполнения).
 - Критерий **б** закрыт умолчанием `--root`, привязанным к корню проекта, а не к каталогу
   плагина: «`${CLAUDE_PLUGIN_ROOT}` changes when the plugin updates, so don't write state there».
 - Критерий **в** закрыт тем, что шаблоны в плагин не входят рабочим составом: «механизм порождения
-  один на все операции, а шаблон свой у каждой» ([BKL-003](../../rules/operation-backlog-rules.md#порождение-прогоном)).
+  один на все операции, а шаблон свой у каждой» ([BKL-003](../../plugin/backlog/share/rules/operation-backlog-rules.md#порождение-прогоном)).
 - Критерий **г** закрыт для механизма (обновление плагина) и остаётся прогоном установщика
   для норм — то есть ровно для того состава, который целевой проект и так правит под себя
   и которому молчаливое затирание противопоказано.
@@ -887,7 +901,7 @@ exec python3 -m backlog "$@"
 `src/backlog/__main__.py:117-126` оставить как есть по смыслу, но умолчания вычислять от корня
 проекта, а не от рабочего каталога: читать `BACKLOG_ROOT` и `BACKLOG_TEMPLATES` из окружения,
 при их отсутствии — `CLAUDE_PROJECT_DIR`, и только затем `$PWD`. Вход плагина эти переменные
-выставляет сам, а норма [BKL-002](../../rules/operation-backlog-rules.md#адрес-беклога) —
+выставляет сам, а норма [BKL-002](../../plugin/backlog/share/rules/operation-backlog-rules.md#адрес-беклога) —
 «корень каталога следа есть значение вызова, а не константа кода» — соблюдается тем же способом,
 что и сейчас.
 
@@ -907,7 +921,7 @@ exec python3 -m backlog "$@"
 `templates/sample-operation.md:25,41-42` вшивает `.claude/skills/backlog-run/SKILL.md`. Значение
 заменяется подстановкой `{{runner}}`, которую вход заполняет сам: для плагинной поставки —
 именем навыка `/backlog:backlog-run`, для проектной — путём `.claude/skills/backlog-run/SKILL.md`.
-Так [BKL-008](../../rules/operation-backlog-rules.md#передача-исполнения) продолжает называть
+Так [BKL-008](../../plugin/backlog/share/rules/operation-backlog-rules.md#передача-исполнения) продолжает называть
 носитель порядка адресуемо, не зная способа поставки.
 
 ### Ссылки шаблона на нормы перестают быть относительными
@@ -982,7 +996,7 @@ exec python3 -m backlog "$@"
   закрытого `.gitignore:3`: каждый профиль ставит плагин заново.
 - Образцовый шаблон в плагине остаётся примером грамматики. Рабочий шаблон операции потребитель
   пишет сам, и проверить его состав поставка не может — только прогон порождения
-  ([BKL-009](../../rules/operation-backlog-rules.md#прогон-при-правке-шаблона)).
+  ([BKL-009](../../plugin/backlog/share/rules/operation-backlog-rules.md#прогон-при-правке-шаблона)).
 - Образ как носитель механизма потребителю не правится: он получает слои, а не исходник, —
   и точка правки остаётся в репозитории-источнике. Для поставки это свойство, а не дефект,
   но оно исключает локальную заплатку, доступную при файловой поставке.
@@ -1002,7 +1016,7 @@ exec python3 -m backlog "$@"
 | Каждый коммит источника становится новой версией у всех | Без `version` версией становится SHA коммита | `version` в манифесте плагина, меняемая осознанно |
 | Авто-обновление молча меняет поведение механизма посреди работы | «Plugin updated: <name> · Run /reload-plugins to apply» | Для сторонних marketplace `autoUpdate` выключен по умолчанию; не включать его |
 | Нормы в потребителе разошлись с поставкой | Потребитель правит файл, установщик обновляет | `sha256` каждого файла в `.backlog-manifest.json`: расхождение называется, а не затирается |
-| Указатель носителя порядка в лежащих беклогах устарел | Порождённое задним числом не правится ([BKL-004](../../rules/operation-backlog-rules.md#порождённое-не-правится)) | Это не дефект: `backlog/README.md:65-71` уже фиксирует, что в исполненных беклогах остаются имена снятых инструментов |
+| Указатель носителя порядка в лежащих беклогах устарел | Порождённое задним числом не правится ([BKL-004](../../plugin/backlog/share/rules/operation-backlog-rules.md#порождённое-не-правится)) | Это не дефект: `backlog/README.md:65-71` уже фиксирует, что в исполненных беклогах остаются имена снятых инструментов |
 | Запись venv в каталог плагина при появлении первой зависимости | Действующий `tools/backlog/backlog.sh:21` пишет в `src/.venv` | Каталог окружения переносится в `${CLAUDE_PLUGIN_DATA}` до появления первой зависимости, а не после |
 | Тег образа переставлен, и состав механизма сменился молча | «When using tags, you can `docker pull` an image again to make sure you have the most up-to-date version of that image» | Закрепление digest, как это уже сделано для окружения: `SDD_KIT_IMAGE_DIGEST` (`.env.example:4-6`) |
 | Digest закреплён, и обновления безопасности не приходят | «Docker does therefore not pull updated versions of an image, which may include security updates» | Пересмотр закреплённого digest по расписанию проекта-потребителя |
@@ -1053,21 +1067,21 @@ exec python3 -m backlog "$@"
 [`docker-compose.yml`](../../docker-compose.yml), [`.env.example`](../../.env.example),
 [`.gitignore`](../../.gitignore),
 [`.sdd-kit-manifest.json`](../../.sdd-kit-manifest.json),
-[`rules/operation-backlog-rules.md`](../../rules/operation-backlog-rules.md),
+`rules/operation-backlog-rules.md` (ныне — источник [`plugin/backlog/share/rules/operation-backlog-rules.md`](../../plugin/backlog/share/rules/operation-backlog-rules.md)),
 [`rules/makefile-rules.md`](../../rules/makefile-rules.md),
 [`rules/docker.md`](../../rules/docker.md),
 [`tools/host-runner/README.md`](../../tools/host-runner/README.md),
 [`tools/host-runner/runner.py`](../../tools/host-runner/runner.py),
 [`tools/host-runner/call.sh`](../../tools/host-runner/call.sh),
-[`docs/glossary.md`](../glossary.md),
-[`src/backlog/__main__.py`](../../src/backlog/__main__.py),
-[`src/backlog/infrastructure.py`](../../src/backlog/infrastructure.py),
-[`tools/backlog/backlog.sh`](../../tools/backlog/backlog.sh),
-[`tools/lib/python-env.sh`](../../tools/lib/python-env.sh),
+`docs/glossary.md` (ныне — источник [`plugin/backlog/share/docs/glossary.md`](../../plugin/backlog/share/docs/glossary.md)),
+`src/backlog/__main__.py` (ныне — [`plugin/backlog/src/backlog/__main__.py`](../../plugin/backlog/src/backlog/__main__.py)),
+`src/backlog/infrastructure.py` (ныне — [`plugin/backlog/src/backlog/infrastructure.py`](../../plugin/backlog/src/backlog/infrastructure.py)),
+`tools/backlog/backlog.sh` (ныне — [`plugin/backlog/bin/backlog`](../../plugin/backlog/bin/backlog)),
+`tools/lib/python-env.sh` (ныне — [`plugin/backlog/lib/python-env.sh`](../../plugin/backlog/lib/python-env.sh)),
 [`tools/make-lint/check.sh`](../../tools/make-lint/check.sh),
-[`templates/sample-operation.md`](../../templates/sample-operation.md),
-[`backlog/README.md`](../../backlog/README.md),
-[`.claude/skills/backlog-run/SKILL.md`](../../.claude/skills/backlog-run/SKILL.md),
+`templates/sample-operation.md` (ныне — образец поставки [`plugin/backlog/templates/sample-operation.md`](../../plugin/backlog/templates/sample-operation.md)),
+`backlog/README.md` (удалён; сведения об адресе — в `BKL-002`),
+`.claude/skills/backlog-run/SKILL.md` (ныне — [`plugin/backlog/skills/backlog-run/SKILL.md`](../../plugin/backlog/skills/backlog-run/SKILL.md)),
 [`tests/test_backlog.py`](../../tests/test_backlog.py).
 
 ---
@@ -1078,3 +1092,5 @@ exec python3 -m backlog "$@"
 |--------|------|--------|-------|--------|--------------------|
 | 1.0.0 | 2026-10-09 | Исследование: импорт функционала проекта в другие проекты | Claude Code | Claude Opus 5 | Начальное создание: инвентарь переносимого и остающегося источнику, восемь жёстких предположений о раскладке с файлом и строкой, разбор прецедента установки `.sdd-kit-manifest.json`, семь вариантов поставки по первичным источникам (плагины и marketplace Claude Code, Agent Skills, `@`-импорты памяти, MCP, упаковка Python, `git submodule`, `git subtree`) с таблицей доступности возможностей на версии `2.1.266`, сопоставление по пяти критериям проекта, рекомендуемое решение «плагин для механизма плюс установочный прогон для норм и точек подключения», девять шагов внедрения, шесть правок кода с развязкой путей входа и адресации навыка, семь отклонённых альтернатив с причинами, допущения, ограничения и семь рисков |
 | 1.0.1 | 2026-10-09 | Исследование: добавить вариант поставки через Docker-контейнер | Claude Code | Claude Opus 5 | Добавлен вариант «Поставка Docker-контейнером» с тремя подвариантами (механизм запечён в образ окружения агента, отдельный образ разового прогона, compose-сервис с профилем), разбором решающего препятствия — вызова из контейнера агента через раннер хоста, — владения порождёнными файлами при bind mount, реестра и приватности образа и доступности возможностей на 2026-10-09. В раздел о прецеденте установки добавлен второй прецедент: окружение агента поставляется опубликованным образом (`docker-compose.yml:15`, `.env.example:1-6`). Таблица сопоставления дополнена тремя строками, вывод таблицы — прямым утверждением, что критерий «нормы в контексте» Docker не закрывает ни при каком подварианте. Рекомендация по сути не изменилась — плагин для механизма плюс установочный прогон для норм, — и для неё добавлен подраздел с разбором трёх вопросов, которые Docker-вариант ставит; изменилось одно: дополнением для CI и прогонов вне агента назван образ механизма вместо пакета Python, и строка отклонённых альтернатив о пакете переформулирована. В отклонённые добавлены четыре строки, в допущения — две, в ограничения — три, в риски — шесть. Источники дополнены девятью первичными документами Docker, OCI и GHCR |
+| 1.0.2 | 2026-10-13 | OpenSpec change `deliver-norms-via-plugin` | Claude Code | Claude Opus 5.5 | В начало документа и в раздел «Рекомендуемое решение» добавлены пометки: установочный прогон норм, манифест и копии в дереве проекта упразднены изменением `deliver-norms-via-plugin`, нормы, глоссарий и образец выдаются из поставки — навыкам путём от корня плагина, внешнему вызову подкомандами `backlog norms` и `backlog sample`. Ссылки на нормы переведены на источник `plugin/backlog/share/rules/`; в перечне файлов-опор ссылки на удалённые `rules/operation-backlog-rules.md`, `docs/glossary.md`, `templates/sample-operation.md` и `backlog/README.md` заменены путями с указанием нынешнего места. Текст исследования не переписывался: он записывает состояние на 2026-10-09 |
+| 1.0.3 | 2026-10-13 | OpenSpec change `deliver-norms-via-plugin` | Claude Code | Claude Opus 5.5 | В перечне файлов-опор пять ссылок, оборванных переводом механизма в плагин, заменены прежними путями с указанием нынешнего места: `src/backlog/__main__.py` и `src/backlog/infrastructure.py` — в `plugin/backlog/src/backlog/`, `tools/backlog/backlog.sh` — вход `plugin/backlog/bin/backlog`, `tools/lib/python-env.sh` — `plugin/backlog/lib/python-env.sh`, `.claude/skills/backlog-run/SKILL.md` — `plugin/backlog/skills/backlog-run/SKILL.md`. Текст исследования не переписывался |

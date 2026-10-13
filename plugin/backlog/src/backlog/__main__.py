@@ -17,6 +17,11 @@
 блоков на значениях-заглушках и файла не пишет: она отвечает на вопрос, порождает ли шаблон
 цельный беклог в любом варианте, а не заводит беклог.
 
+Нормы, глоссарий и образцовый шаблон вход выдаёт текстом: `norms` — нормы и за ними глоссарий,
+`norms --rule BKL-NNN` — раздел одного правила, `sample` — образец. Это канал внешнего вызова:
+в дерево проекта поставка ничего не копирует, а навыки читают те же файлы путём от корня
+плагина.
+
 Коды возврата: 0 — беклог порождён либо уже лежал, проверка расхождений не нашла, шаблон
 принят; 1 — ввод не позволяет породить, либо проверка нашла расхождения; 2 — ошибка вызова
 или окружения.
@@ -30,16 +35,11 @@ import os
 import pathlib
 import sys
 
-import json
-
 from . import (
+    DeliveryFiles,
     FileBacklog,
     FileBacklogs,
-    FileDelivery,
-    FileManifest,
-    FileProject,
     FileTemplates,
-    ImportLine,
     MarkdownBacklog,
     render,
     scalar,
@@ -47,15 +47,12 @@ from . import (
 )
 from .application import (
     ALREADY_GENERATED,
-    CONFLICT,
+    GENERATED,
     TOO_MANY_FLAGS,
     CheckTemplateInput,
     CheckTemplateUseCase,
     GenerateBacklogInput,
     GenerateBacklogUseCase,
-    InstallRulesInput,
-    InstallRulesUseCase,
-    LINE_ADDED,
     LintBacklogInput,
     LintBacklogUseCase,
     REJECTED,
@@ -70,49 +67,33 @@ EXIT_ENVIRONMENT = 2
 STAMP_FORMAT = "%Y%m%d%H%M%S"
 DATE_FORMAT = "%Y-%m-%d"
 
-# Маркеры корня целевого проекта, в порядке убывания определённости: манифест установки
-# кладёт сама поставка, каталог системы контроля версий есть у любого проекта.
-PROJECT_MARKERS = (".backlog-manifest.json", ".git")
+# Маркер корня целевого проекта: каталог системы контроля версий есть у любого проекта,
+# а своих файлов поставка в дерево проекта не кладёт.
+PROJECT_MARKERS = (".git",)
 
 # Умолчания имён каталогов внутри проекта: корень следа и каталог шаблонов.
 ROOT_NAME = "backlog"
 TEMPLATES_NAME = "templates"
 
-# Адрес носителя порядка исполнения при плагинной поставке. Вход поставки называет свой
-# способ переменной BACKLOG_RUNNER; значение по умолчанию отвечает поставке плагином.
+# Адрес носителя порядка исполнения: имя навыка плагина, разрешаемое платформой. Вход
+# поставки передаёт его переменной BACKLOG_RUNNER, она же служит явному переопределению.
 RUNNER_DEFAULT = "/backlog:backlog-run"
 
 # Предмет беклога при приёмке шаблона: файла приёмка не пишет, и предмет нужен только
-# для ссылки на нормы, которая считается от адреса беклога.
+# значением подстановки `subject`.
 CHECK_SUBJECT = "check-template"
 
-# Файл норм беклога в дереве целевого проекта: от него считается ссылка, которую несёт
-# порождённый беклог.
-RULES_NAME = "rules/operation-backlog-rules.md"
-
-# Каталог поставки: корень, под которым лежат состав установки и образцовый шаблон.
+# Каталог поставки: корень, под которым лежат нормы, глоссарий и образцовый шаблон.
 # Считается от места пакета, а не из переменной: переменные каталога поставки прогонам
 # инструмента не достаются, а место пакета внутри поставки известно.
 DELIVERY_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DELIVERY_SHARE = "share"
-DELIVERY_SAMPLE = "templates/sample-operation.md"
-DELIVERY_PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 
-STAMP_ISO = "%Y-%m-%dT%H:%M:%SZ"
-
-# Строки подключения, которые установка дописывает в точки подключения проекта.
-# Подключение относительное: `@`-импорт за пределы рабочего каталога требует отдельного
-# одобрения владельца и обновление поставки не переживает.
-IMPORT_LINES = (
-    ImportLine(path="CLAUDE.md", text="@" + RULES_NAME, after="@rules/docker.md"),
-    ImportLine(path="CLAUDE.md", text="@docs/glossary.md"),
-)
-
-# Строки перечня игнорируемых путей: порождённые беклоги принадлежат прогону, а описание
-# адреса остаётся исключением — оно отвечает на вопрос об адресе.
-IGNORE_LINES = (
-    ImportLine(path=".gitignore", text="backlog/*"),
-    ImportLine(path=".gitignore", text="!backlog/README.md"),
+# Рекомендация для перечня игнорируемых путей проекта. Перечень принадлежит проекту,
+# поэтому вход строку не дописывает, а называет: закрывающая строка скрыла бы прежнее
+# содержимое каталога, если он уже нёс смысл.
+IGNORE_ADVICE = (
+    "Рекомендация: если порождённые беклоги не коммитятся, добавьте в .gitignore проекта "
+    "строку `{line}`; вход перечень игнорируемых путей не правит."
 )
 
 
@@ -159,18 +140,16 @@ def _default_dir(variable, name):
     return _project_root() / name
 
 
-def _rules_link(backlog_dir):
-    """Ссылка на нормы беклога от каталога порождаемого файла.
-
-    Беклог лежит тремя уровнями ниже корня проекта, поэтому ссылка, записанная в шаблоне
-    относительной, в порождённом файле указывает в пустоту. Значение считается порождением:
-    шаблон описывает состав задач, а не раскладку проекта.
-    """
-    target = _project_root() / RULES_NAME
-    return os.path.relpath(target, backlog_dir)
+def _ignore_line(root):
+    """Строка перечня игнорируемых путей для корня следа: от корня проекта, если он внутри."""
+    try:
+        relative = root.resolve().relative_to(_project_root().resolve())
+    except ValueError:
+        relative = root
+    return f"{relative.as_posix()}/*"
 
 
-def _derived_values(operation, subject, stamp, root):
+def _derived_values(operation, subject, stamp):
     """Значения, которые порождение выводит само, а не принимает вызовом.
 
     Перечень один на порождение и приёмку шаблона: два носителя одного перечня разошлись бы
@@ -181,10 +160,10 @@ def _derived_values(operation, subject, stamp, root):
         "run_stamp": stamp,
         "operation": operation,
         "subject": subject,
-        # Носитель порядка исполнения и ссылка на нормы — значения порождения, а не текст
-        # шаблона: способ поставки и раскладка проекта шаблону не принадлежат.
+        # Носитель порядка исполнения — значение порождения, а не текст шаблона: способ
+        # поставки шаблону не принадлежит. Нормы шаблон называет кодом и вызовом входа,
+        # и адреса норм среди значений нет: он зависел бы от раскладки и пути поставки.
         "runner": os.environ.get("BACKLOG_RUNNER") or RUNNER_DEFAULT,
-        "rules": _rules_link(root / operation / subject),
     }
 
 
@@ -226,11 +205,24 @@ def _flags(raised, lowered):
     return flags
 
 
+HELP_EPILOG = """\
+Каталог следа: беклог ложится в <корень следа>/<операция>/<предмет>/tasks.md; корень —
+каталог backlog в корне проекта, ключ --root либо переменная BACKLOG_ROOT. Перечень
+игнорируемых путей проекта вход не правит: если порождённые беклоги не коммитятся,
+добавьте в .gitignore строку `backlog/*` — порождение напомнит об этом, заводя корень
+следа впервые.
+
+Нормы и образец: `backlog norms` печатает нормы беклога и глоссарий, `backlog norms
+--rule BKL-NNN` — одно правило, `backlog sample` — образцовый шаблон операции."""
+
+
 def _parse(argv):
-    """Разбирает вызов: порождение, приёмка шаблона, две проверки и установка норм."""
+    """Разбирает вызов: порождение, приёмка шаблона, две проверки, нормы и образец."""
     parser = argparse.ArgumentParser(
         prog="backlog",
         description="Порождение беклога операции по её шаблону и проверка лежащего беклога.",
+        epilog=HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -290,14 +282,17 @@ def _parse(argv):
     )
     verify.add_argument("path", help="Путь к файлу беклога")
 
-    install = sub.add_parser(
-        "install", help="Установить нормы беклога в дерево целевого проекта"
+    norms = sub.add_parser(
+        "norms", help="Напечатать нормы беклога и за ними глоссарий его понятий"
     )
-    install.add_argument(
-        "--project",
+    norms.add_argument(
+        "--rule",
         default=None,
-        help="Дерево целевого проекта; умолчание — корень проекта, найденный от рабочего каталога",
+        metavar="BKL-NNN",
+        help="Напечатать только раздел названного правила",
     )
+
+    sub.add_parser("sample", help="Напечатать образцовый шаблон операции")
     return parser.parse_args(argv)
 
 
@@ -325,7 +320,8 @@ def generate(arguments):
         else _default_dir("BACKLOG_TEMPLATES", TEMPLATES_NAME)
     )
 
-    values = _derived_values(operation, subject, stamp, root)
+    fresh = not root.exists()
+    values = _derived_values(operation, subject, stamp)
     values.update(_pairs(arguments.value))
     flags = _flags(arguments.flag, arguments.no_flag)
 
@@ -372,6 +368,8 @@ def generate(arguments):
 
     print(f"Беклог порождён шаблоном версии {result.template_version}")
     print(f"Беклог: {path}")
+    if result.outcome == GENERATED and fresh:
+        print(IGNORE_ADVICE.format(line=_ignore_line(root)), file=sys.stderr)
     return EXIT_OK
 
 
@@ -413,10 +411,9 @@ def check_template(arguments):
     version, text = templates.read(operation)
 
     stamp = datetime.datetime.now().strftime(STAMP_FORMAT)
-    root = _default_dir("BACKLOG_ROOT", ROOT_NAME)
     grammar = template_grammar(text)
     values = _check_values(
-        grammar.substitutions, _derived_values(operation, CHECK_SUBJECT, stamp, root)
+        grammar.substitutions, _derived_values(operation, CHECK_SUBJECT, stamp)
     )
 
     use_case = CheckTemplateUseCase(render=render, parser=MarkdownBacklog())
@@ -501,73 +498,23 @@ def verify(arguments):
     return EXIT_OK
 
 
-def _delivery_version():
-    """Версия поставки: из манифеста плагина либо из переменной окружения.
+def norms(arguments):
+    """Печатает нормы и глоссарий либо раздел одного правила."""
+    delivery = DeliveryFiles(DELIVERY_ROOT, _environment)
+    if arguments.rule is None:
+        sys.stdout.write(delivery.norms())
+        return EXIT_OK
 
-    Версия принадлежит поставке, а не установщику: без неё манифест установленного
-    не отвечает на вопрос, какой версией установлен состав.
-    """
-    named = os.environ.get("BACKLOG_VERSION")
-    if named:
-        return named
-
-    manifest = DELIVERY_ROOT / DELIVERY_PLUGIN_MANIFEST
-    try:
-        return json.loads(manifest.read_text(encoding="utf-8"))["version"]
-    except (OSError, ValueError, KeyError):
-        _environment(
-            f"версия поставки не определяется: ни BACKLOG_VERSION, ни {manifest}"
-        )
+    section = delivery.rule(arguments.rule)
+    if section is None:
+        _environment(f"правила {arguments.rule} в нормах беклога нет")
+    sys.stdout.write(section)
+    return EXIT_OK
 
 
-def install(arguments):
-    """Устанавливает нормы, определения, образцовый шаблон и описание каталога следа."""
-    project = (
-        pathlib.Path(arguments.project)
-        if arguments.project is not None
-        else _project_root()
-    )
-    share = DELIVERY_ROOT / DELIVERY_SHARE
-    if not share.is_dir():
-        _environment(f"состав поставки не найден: {share}")
-
-    sample = DELIVERY_ROOT / DELIVERY_SAMPLE
-    extra = ((DELIVERY_SAMPLE, sample),) if sample.is_file() else ()
-
-    tree = FileProject(project, _environment)
-    manifest = FileManifest(project, _environment)
-    use_case = InstallRulesUseCase(
-        delivery=FileDelivery(share, extra=extra, fail=_environment),
-        project=tree,
-        manifest=manifest,
-    )
-
-    result = use_case.execute(
-        InstallRulesInput(
-            delivery_version=_delivery_version(),
-            installed_at=datetime.datetime.now(datetime.timezone.utc).strftime(STAMP_ISO),
-            lines=IMPORT_LINES + IGNORE_LINES,
-        )
-    )
-
-    for item in result.files:
-        print(f"{item.outcome}: {item.path}")
-    for item in result.lines:
-        if item.outcome == LINE_ADDED:
-            print(f"строка подключения дописана в {item.path}: {item.line}")
-    print(f"Манифест установленного: {manifest.path}")
-
-    conflicts = result.conflicts
-    if conflicts:
-        print(
-            "Расхождение со слепком манифеста — файлы правил потребитель, и перезаписаны "
-            "они не были:",
-            file=sys.stderr,
-        )
-        for item in conflicts:
-            print(f"  - {item.path}", file=sys.stderr)
-        print("Решение остаётся владельцу: править состав поставки или свой файл.", file=sys.stderr)
-        return EXIT_BLOCKED
+def sample(arguments):
+    """Печатает образцовый шаблон операции."""
+    sys.stdout.write(DeliveryFiles(DELIVERY_ROOT, _environment).sample())
     return EXIT_OK
 
 
@@ -575,7 +522,8 @@ def main(argv=None):
     """Разбирает вызов и исполняет подкоманду."""
     arguments = _parse(sys.argv[1:] if argv is None else argv)
     commands = {
-        "install": install,
+        "norms": norms,
+        "sample": sample,
         "lint": lint,
         "verify": verify,
         "generate": generate,
