@@ -147,3 +147,5 @@ backlog generate --operation release --subject v1.4.0 \
 - [Нормы беклога](./plugin/backlog/share/rules/operation-backlog-rules.md) и
   [глоссарий](./plugin/backlog/share/docs/glossary.md).
 - [Разработка formular](./CONTRIBUTING.md) — для тех, кто правит саму систему.
+- [Образец плагина агента](./docs/spec/agent-plugin-blueprint/index.md) — архитектура
+  `backlog` как переносимое техническое решение: для проекта, строящего свой плагин по тому же образцу.
