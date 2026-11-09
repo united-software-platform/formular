@@ -10,6 +10,7 @@
 
 import contextlib
 import io
+import json
 import os
 import pathlib
 import subprocess
@@ -50,6 +51,8 @@ from backlog.application import (  # noqa: E402
     FOUND,
     GENERATED,
     INCOMPLETE,
+    InspectTemplateInput,
+    InspectTemplateUseCase,
     REJECTED,
     GenerateBacklogInput,
     GenerateBacklogUseCase,
@@ -702,6 +705,40 @@ class CheckTemplateTest(unittest.TestCase):
         self.assertEqual(result.findings, ())
 
 
+class InspectTemplateTest(unittest.TestCase):
+    """Интроспекция шаблона: деление подстановок на выводимые и требующие значения."""
+
+    DERIVED = ("template_version", "date", "operation", "subject", "runner")
+
+    def inspect(self, substitutions):
+        return InspectTemplateUseCase().execute(
+            InspectTemplateInput(
+                template_version="1.2.0",
+                substitutions=substitutions,
+                flags=("host-part",),
+                derived=self.DERIVED,
+            )
+        )
+
+    def test_sample_splits_into_three_groups(self):
+        """Образец: target требует значения, host-part — признак, парная свёрнута в ключ."""
+        result = self.inspect((*self.DERIVED, "target", "target_scalar"))
+        self.assertEqual(result.derived, self.DERIVED)
+        self.assertEqual(result.values, ("target",))
+        self.assertEqual(result.flags, ("host-part",))
+
+    def test_scalar_pair_folds_into_its_key(self):
+        """Парная подстановка значением своего ключа: отдельного вопроса владельцу нет."""
+        result = self.inspect(("version_scalar", "version"))
+        self.assertEqual(result.values, ("version",))
+
+    def test_derived_name_absent_from_template_is_not_listed(self):
+        """Печатается только то, что есть в шаблоне: run_stamp образец не несёт."""
+        result = self.inspect(("target",))
+        self.assertEqual(result.derived, ())
+        self.assertEqual(result.values, ("target",))
+
+
 class FileBacklogTest(unittest.TestCase):
     """Чтение проверяемого беклога: отсутствие файла — ошибка вызова."""
 
@@ -904,6 +941,46 @@ class EntryCase(unittest.TestCase):
                 code = exit_.code
         self.out, self.err = out.getvalue(), err.getvalue()
         return code
+
+
+class InspectTemplateEntryTest(EntryCase):
+    """Вход интроспекции: состав шаблона текстом и структурой, без следа в проекте."""
+
+    def test_sample_composition_text(self):
+        sample = DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md"
+        self.assertEqual(self.run_entry("inspect-template", str(sample)), 0, self.err)
+        self.assertIn("Шаблон sample-operation версии", self.out)
+        self.assertIn(
+            "Выводятся порождением: template_version, date, operation, subject, runner", self.out
+        )
+        self.assertIn("Требуют значения (--value): target", self.out)
+        self.assertIn("Признаки условных блоков: host-part", self.out)
+
+    def test_sample_composition_json(self):
+        sample = DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md"
+        self.assertEqual(
+            self.run_entry("inspect-template", str(sample), "--json"), 0, self.err
+        )
+        payload = json.loads(self.out)
+        self.assertEqual(payload["template_version"], "1.2.0")
+        self.assertEqual(
+            payload["derived"],
+            ["template_version", "date", "operation", "subject", "runner"],
+        )
+        self.assertEqual(payload["values"], ["target"])
+        self.assertEqual(payload["flags"], ["host-part"])
+
+    def test_absent_file_is_environment_error(self):
+        self.assertEqual(self.run_entry("inspect-template", str(self.base / "нет.md")), 2)
+        self.assertIn("не найден", self.err)
+        self.assertEqual(self.out, "")
+
+    def test_writes_no_files(self):
+        """Единственный результат интроспекции — напечатанный состав, не файл."""
+        sample = DELIVERY_TEMPLATES / f"{SAMPLE_OPERATION}.md"
+        self.assertEqual(self.run_entry("inspect-template", str(sample)), 0, self.err)
+        self.assertFalse(self.root.exists())
+        self.assertEqual(sorted(path.name for path in self.base.iterdir()), ["templates"])
 
 
 class NormsEntryTest(EntryCase):
