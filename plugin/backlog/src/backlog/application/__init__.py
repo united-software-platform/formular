@@ -1,8 +1,8 @@
 """Слой приложения модуля беклога: сценарии порождения и проверки, контракты чтения.
 
-Сценариев здесь четыре: порождение беклога названной операции над названным предметом,
-приёмка шаблона операции по всем сочетаниям признаков, структурная проверка лежащего беклога
-и проверка полноты его исполнения.
+Сценариев здесь пять: порождение беклога названной операции над названным предметом,
+приёмка шаблона операции по всем сочетаниям признаков, интроспекция шаблона, структурная
+проверка лежащего беклога и проверка полноты его исполнения.
 Операции, знающие свои значения и свои предусловия, живут снаружи — они собирают вызов
 и передают сценарию готовые значения, потому что вид значения во фронтматтере есть
 свойство носителя, а не сценария.
@@ -31,6 +31,11 @@ from .check_template import (
     CheckTemplateOutput,
     CheckTemplateUseCase,
     VariantFinding,
+)
+from .inspect_template import (
+    InspectTemplateInput,
+    InspectTemplateOutput,
+    InspectTemplateUseCase,
 )
 from .lint_backlog import (
     CLEAN,
@@ -61,6 +66,9 @@ __all__ = [
     "CheckTemplateOutput",
     "CheckTemplateUseCase",
     "VariantFinding",
+    "InspectTemplateInput",
+    "InspectTemplateOutput",
+    "InspectTemplateUseCase",
     "ACCEPTED",
     "DEFECTIVE",
     "TOO_MANY_FLAGS",

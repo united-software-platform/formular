@@ -30,6 +30,7 @@ from .domain import (
 )
 from .infrastructure import (
     BACKLOG_NAME,
+    TEMPLATE_VERSION_KEY,
     TEMPLATE_VERSION_PATTERN,
     DeliveryFiles,
     FileBacklog,
@@ -65,6 +66,7 @@ __all__ = [
     "template_grammar",
     "TemplateGrammar",
     "BACKLOG_NAME",
+    "TEMPLATE_VERSION_KEY",
     "TEMPLATE_VERSION_PATTERN",
     "DeliveryFiles",
     "rule_section",

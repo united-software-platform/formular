@@ -19,15 +19,15 @@
 
 ## Эталон
 
-| Сведение | Значение на 2026-10-13 |
+| Сведение | Значение на 2026-11-09 |
 |----------|------------------------|
 | Проект | `formular` |
-| Плагин | `backlog`, версия манифеста `1.3.0` |
+| Плагин | `backlog`, версия манифеста `1.4.0` |
 | Маркетплейс | `formular`, запись `backlog` с источником `./plugin/backlog` |
 | Предмет | Беклог операции: носитель порядка работ и следа исполнения операции с необратимым шагом либо шагом владельца |
 | Префикс норм | `BKL`, нормы `BKL-001`..`BKL-010` |
 | Интерпретатор | `python3` со стандартной библиотекой; `venv` нужен, только если появятся зависимости |
-| Проверки | 72 теста `unittest`, пять возможностей OpenSpec |
+| Проверки | 79 тестов `unittest`, шесть возможностей OpenSpec |
 
 ---
 
@@ -45,6 +45,7 @@
 | Нормы | нормы беклога `BKL-NNN` и глоссарий | `plugin/backlog/share/` |
 | Навык исполнения | навык `/backlog:backlog-run`, исполнитель беклога | глоссарий поставки, раздел «Исполнитель беклога» |
 | Навык приёмки | навык `/backlog:backlog-template` | `plugin/backlog/skills/backlog-template/SKILL.md` |
+| Навык порождения | навык `/backlog:backlog-generate` | `plugin/backlog/skills/backlog-generate/SKILL.md` |
 | Признак исполнения | признак «выполнено ранее» | `BKL-006` |
 | Стоп-знак | стоп-знак | `BKL-007` |
 
@@ -65,6 +66,7 @@
 | Вход ядра | `plugin/backlog/src/backlog/__main__.py` | APB-002, APB-011 |
 | Навык исполнения | `plugin/backlog/skills/backlog-run/SKILL.md` | APB-008 |
 | Навык приёмки | `plugin/backlog/skills/backlog-template/SKILL.md` | APB-008, APB-010 |
+| Навык порождения | `plugin/backlog/skills/backlog-generate/SKILL.md` | APB-008 |
 | Образцовый шаблон | `plugin/backlog/templates/sample-operation.md` | APB-009 |
 | Нормы и глоссарий | `plugin/backlog/share/rules/operation-backlog-rules.md`, `plugin/backlog/share/docs/glossary.md` | APB-007 |
 | Тесты | `tests/test_backlog.py` | APB-012 |
@@ -118,3 +120,4 @@
 | Версия | Дата | Задача | Агент | Модель | Описание изменений |
 |--------|------|--------|-------|--------|--------------------|
 | 1.0.0 | 2026-10-13 | FRM-012 | Claude Code | Claude Opus 5.5 | Начальное создание: сведения об эталоне, соответствие ролей образца понятиям эталона, компоненты и пути с решениями, перечень того, что целевой проект заменяет и что сохраняет, след предмета по шаблонам операций репозитория-источника |
+| 1.1.0 | 2026-11-09 | FRM-013 | Claude Code | Claude Opus 5.5 | Таблицы эталона дополнены навыком порождения `/backlog:backlog-generate` (`plugin/backlog/skills/backlog-generate/SKILL.md`, APB-008); сведения обновлены к состоянию поставки: дата, версия манифеста `1.4.0`, 79 тестов `unittest`, шесть возможностей OpenSpec. Состав таблиц и решений не изменился |

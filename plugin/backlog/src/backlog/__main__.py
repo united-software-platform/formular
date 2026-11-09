@@ -1,4 +1,4 @@
-"""Вход командной строки: порождение беклога, приёмка шаблона и проверка лежащего беклога.
+"""Вход командной строки: порождение беклога, приёмка и интроспекция шаблона, проверки.
 
 Вход операций не знает. Он принимает имя операции, предмет, значения подстановок и признаки
 условных блоков — и тем же составом вызывается для любой операции, у которой есть шаблон.
@@ -17,6 +17,12 @@
 блоков на значениях-заглушках и файла не пишет: она отвечает на вопрос, порождает ли шаблон
 цельный беклог в любом варианте, а не заводит беклог.
 
+Интроспекция шаблона — `inspect-template` — печатает его состав: подстановки, заполняемые
+порождением сами; подстановки, требующие значения вызова; признаки условных блоков. Состав
+нужен вызывающему, собирающему вызов порождения: навыку порождения либо внешней системе.
+Перечень выводимых имён печатает вход из собственных знаний ядра, а не принимает извне:
+иначе второй носитель перечня разошёлся бы с заполнением при первой же правке.
+
 Нормы, глоссарий и образцовый шаблон вход выдаёт текстом: `norms` — нормы и за ними глоссарий,
 `norms --rule BKL-NNN` — раздел одного правила, `sample` — образец. Это канал внешнего вызова:
 в дерево проекта поставка ничего не копирует, а навыки читают те же файлы путём от корня
@@ -31,11 +37,13 @@
 
 import argparse
 import datetime
+import json
 import os
 import pathlib
 import sys
 
 from . import (
+    TEMPLATE_VERSION_KEY,
     DeliveryFiles,
     FileBacklog,
     FileBacklogs,
@@ -53,6 +61,8 @@ from .application import (
     CheckTemplateUseCase,
     GenerateBacklogInput,
     GenerateBacklogUseCase,
+    InspectTemplateInput,
+    InspectTemplateUseCase,
     LintBacklogInput,
     LintBacklogUseCase,
     REJECTED,
@@ -167,6 +177,18 @@ def _derived_values(operation, subject, stamp):
     }
 
 
+def _derived_names():
+    """Имена подстановок, заполняемых порождением: тот же перечень, что _derived_values.
+
+    Словарь значений заполняется датой и штампом, которых у интроспекции нет и не нужно:
+    ей нужны имена, и она берёт их из того же источника, каким заполняет подстановки
+    порождение. Версия шаблона стоит в перечне рядом с ними: её подстановку заполняет
+    сценарий из маркера шаблона, тем же именем каким её знает разбор фронтматтера.
+    Отдельная константа перечня разошлась бы с заполнением при первой правке.
+    """
+    return (*_derived_values("", "", "").keys(), TEMPLATE_VERSION_KEY)
+
+
 def _pairs(given):
     """Разбирает значения вида `ключ=значение`.
 
@@ -271,6 +293,18 @@ def _parse(argv):
     )
     check.add_argument("path", help="Путь к файлу шаблона; имя файла без расширения — имя операции")
 
+    inspect = sub.add_parser(
+        "inspect-template",
+        help="Напечатать состав шаблона: подстановки и признаки условных блоков",
+    )
+    inspect.add_argument("path", help="Путь к файлу шаблона; имя файла без расширения — имя операции")
+    inspect.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Напечатать состав структурой с полями derived, values и flags",
+    )
+
     lint = sub.add_parser(
         "lint", help="Проверить структуру лежащего беклога"
     )
@@ -371,6 +405,51 @@ def generate(arguments):
     if result.outcome == GENERATED and fresh:
         print(IGNORE_ADVICE.format(line=_ignore_line(root)), file=sys.stderr)
     return EXIT_OK
+
+
+def inspect_template(arguments):
+    """Печатает состав шаблона: выводимые порождением, требующие значения и признаки."""
+    path = pathlib.Path(arguments.path)
+    operation = _segment(path.stem, "имя операции")
+    templates = FileTemplates(path.parent, _environment, suffix=path.suffix)
+    version, text = templates.read(operation)
+
+    grammar = template_grammar(text)
+    use_case = InspectTemplateUseCase()
+    result = use_case.execute(
+        InspectTemplateInput(
+            template_version=version,
+            substitutions=grammar.substitutions,
+            flags=grammar.flags,
+            derived=_derived_names(),
+        )
+    )
+
+    if arguments.as_json:
+        print(
+            json.dumps(
+                {
+                    "template_version": result.template_version,
+                    "operation": operation,
+                    "derived": list(result.derived),
+                    "values": list(result.values),
+                    "flags": list(result.flags),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+
+    print(f"Шаблон {operation} версии {version}")
+    print(f"Выводятся порождением: {_names(result.derived)}")
+    print(f"Требуют значения (--value): {_names(result.values)}")
+    print(f"Признаки условных блоков: {_names(result.flags)}")
+    return EXIT_OK
+
+
+def _names(items):
+    """Перечень имён строкой: пустой перечень назван словом, а не пустотой."""
+    return ", ".join(items) if items else "нет"
 
 
 def _stub(name):
@@ -528,6 +607,7 @@ def main(argv=None):
         "verify": verify,
         "generate": generate,
         "check-template": check_template,
+        "inspect-template": inspect_template,
     }
     return commands[arguments.command](arguments)
 
