@@ -1,0 +1,4 @@
+# Инструментарий formular: openspec CLI закреплён собственной декларацией
+# и перекрывает каскад workspace для этого инструмента.
+[tools]
+"npm:@fission-ai/openspec" = "2.1.1"

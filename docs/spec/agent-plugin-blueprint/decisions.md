@@ -61,15 +61,15 @@
   версией держит потребителей на кешированной копии до смены строки версии; плагин, включённый
   коммитимым `.claude/settings.json`, доустанавливается сам, если источник записи маркетплейса —
   относительный путь;
-- [TERM-001](../../../rules/terminology.md#единый-источник-определения) и
-  [DOC-023](../../../rules/documentation-rules.md#жизненный-цикл-документа): у сведения
+- [DOC-023](../../../.tessera/rules/documentation-rules.md#жизненный-цикл-документа): у сведения
   один носитель, вторая копия расходится молча;
 - требования эталона `plugin-delivery`: «Механизм поставляется плагином», «Распространение
   плагина».
 
 **Воплощение в эталоне:** `.claude-plugin/marketplace.json` — источник `./plugin/backlog`;
 `plugin/backlog/.claude-plugin/plugin.json` — `version`; `.claude/settings.json` —
-`extraKnownMarketplaces` с источником `directory` и `enabledPlugins`.
+локальная настройка харнеса вне индекса: `extraKnownMarketplaces` с источником `directory`
+и `enabledPlugins`.
 
 **Отклонённые альтернативы:**
 
@@ -115,7 +115,7 @@
 
 - платформа: файлы каталога `bin/` плагина находятся на `PATH` инструмента Bash, пока плагин
   включён; путь установки несёт версию и устаревает при обновлении;
-- [CLAR-016](../../../rules/clean-architecture.md#слой-инфраструктуры-clar-014016): обработчик
+- [CLAR-016](../../../.tessera/rules/clean-architecture.md#слой-инфраструктуры-clar-014016): обработчик
   вызова зависит от слоя приложения, а не от домена;
 - требования эталона `plugin-delivery`: «Вход вызывается командой», «Вход не зависит от своего
   места»;
@@ -202,15 +202,15 @@
 8. Правило структуры артефакта существует в одном экземпляре — в домене — и вызывается всеми
    сценариями, которым нужно.
 
-**Основание:** [CLAR-001](../../../rules/clean-architecture.md#слои-и-направление-зависимостей-clar-001),
-[CLAR-002](../../../rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
-[CLAR-004](../../../rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
-[CLAR-006](../../../rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
-[CLAR-007..013](../../../rules/clean-architecture.md#слой-приложения-clar-007013),
-[CLAR-015](../../../rules/clean-architecture.md#слой-инфраструктуры-clar-014016),
-[CLAR-016](../../../rules/clean-architecture.md#слой-инфраструктуры-clar-014016),
-[CLAR-021](../../../rules/clean-architecture.md#solid-clar-017021). Модульная организация
-[CLAR-022](../../../rules/clean-architecture.md#модульная-организация-clar-022023) в эталоне
+**Основание:** [CLAR-001](../../../.tessera/rules/clean-architecture.md#слои-и-направление-зависимостей-clar-001),
+[CLAR-002](../../../.tessera/rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
+[CLAR-004](../../../.tessera/rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
+[CLAR-006](../../../.tessera/rules/clean-architecture.md#слой-домена-clar-002004-clar-006),
+[CLAR-007..013](../../../.tessera/rules/clean-architecture.md#слой-приложения-clar-007013),
+[CLAR-015](../../../.tessera/rules/clean-architecture.md#слой-инфраструктуры-clar-014016),
+[CLAR-016](../../../.tessera/rules/clean-architecture.md#слой-инфраструктуры-clar-014016),
+[CLAR-021](../../../.tessera/rules/clean-architecture.md#solid-clar-017021). Модульная организация
+[CLAR-022](../../../.tessera/rules/clean-architecture.md#модульная-организация-clar-022023) в эталоне
 вырождена: предмет один, модуль один.
 
 **Воплощение в эталоне:** `plugin/backlog/src/backlog/domain.py` — `Backlog` (frozen),
@@ -251,8 +251,8 @@
    только от контрактов чтения.
 4. Реализации контракта записи и контрактов чтения — отдельные компоненты инфраструктуры.
 
-**Основание:** [CQRS-001..006](../../../rules/cqrs.md#подробное-описание),
-[CLAR-020](../../../rules/clean-architecture.md#solid-clar-017021) — узкие контракты.
+**Основание:** [CQRS-001..006](../../../.tessera/rules/cqrs.md#подробное-описание),
+[CLAR-020](../../../.tessera/rules/clean-architecture.md#solid-clar-017021) — узкие контракты.
 
 **Воплощение в эталоне:** `BacklogRepository.add` в `domain.py`; `TemplateSource`,
 `BacklogLookup`, `BacklogSource`, `DocumentParser` в `application/contracts.py`;
@@ -288,11 +288,11 @@
 4. Расхождение проверки — объект-значение с местом (строкой файла) и сообщением.
 5. Имена компонентов кода совпадают с понятиями норм и глоссария поставки.
 
-**Основание:** [DDD-001](../../../rules/ddd.md#единый-язык-ddd-001002),
-[DDD-006](../../../rules/ddd.md#агрегат-ddd-006009),
-[DDD-010](../../../rules/ddd.md#сущность-ddd-010011),
-[DDD-012..014](../../../rules/ddd.md#value-object-ddd-012014),
-[DDD-020..022](../../../rules/ddd.md#repository-ddd-020022); `BKL-004` эталона — порождённое
+**Основание:** [DDD-001](../../../.tessera/rules/ddd.md#единый-язык-ddd-001002),
+[DDD-006](../../../.tessera/rules/ddd.md#агрегат-ddd-006009),
+[DDD-010](../../../.tessera/rules/ddd.md#сущность-ddd-010011),
+[DDD-012..014](../../../.tessera/rules/ddd.md#value-object-ddd-012014),
+[DDD-020..022](../../../.tessera/rules/ddd.md#repository-ddd-020022); `BKL-004` эталона — порождённое
 не правится.
 
 **Воплощение в эталоне:** `Backlog` с `address`, `Finding`, `Leftover`, `BacklogTask`,
@@ -329,14 +329,14 @@
 6. Репозиторий-источник подключает нормы и глоссарий в контекст агента `@`-импортом из каталога
    поставки, без копий.
 
-**Основание:** [TERM-001](../../../rules/terminology.md#единый-источник-определения),
-[DOC-023](../../../rules/documentation-rules.md#жизненный-цикл-документа); `BKL-008` эталона —
+**Основание:** [DOC-023](../../../.tessera/rules/documentation-rules.md#жизненный-цикл-документа);
+`BKL-008` эталона —
 норма называется кодом и вызовом; требования эталона `norms-delivery`.
 
 **Воплощение в эталоне:** `plugin/backlog/share/rules/operation-backlog-rules.md`,
 `plugin/backlog/share/docs/glossary.md`, `plugin/backlog/templates/sample-operation.md`;
 `DeliveryFiles` и `rule_section` в `infrastructure.py`; подкоманды `norms`, `norms --rule`,
-`sample`; `@plugin/backlog/share/...` в `CLAUDE.md` эталона.
+`sample`; `@plugin/backlog/share/...` в `AGENTS.md` эталона.
 
 **Отклонённые альтернативы:**
 
@@ -372,7 +372,7 @@
    (`Bash(<вход>:*)` и необходимый минимум).
 7. Тело навыка: границы навыка, порядок шагов, таблица исходов, таблица версий.
 
-**Основание:** [CLAR-017](../../../rules/clean-architecture.md#solid-clar-017021) — одна причина
+**Основание:** [CLAR-017](../../../.tessera/rules/clean-architecture.md#solid-clar-017021) — одна причина
 меняться; `BKL-008` эталона — передача исполнения называет носитель и предписывает его загрузку;
 требования эталона `operation-backlog` «Носитель порядка исполнения» и `template-acceptance`
 «Навык приёмки шаблона», «Шаблон пишет вызывающий».
@@ -425,8 +425,8 @@
    по завершении — проверка полноты исполнения.
 
 **Основание:** `BKL-003`..`BKL-007`, `BKL-010` эталона; требования эталона `operation-backlog`;
-[DOC-022](../../../rules/documentation-rules.md#жизненный-цикл-документа) — таблица версий;
-[CLAR-013](../../../rules/clean-architecture.md#слой-приложения-clar-007013) — сценарий задаёт
+[DOC-022](../../../.tessera/rules/documentation-rules.md#жизненный-цикл-документа) — таблица версий;
+[CLAR-013](../../../.tessera/rules/clean-architecture.md#слой-приложения-clar-007013) — сценарий задаёт
 порядок шагов, правила остаются домену.
 
 **Воплощение в эталоне:** `TEMPLATE_VERSION_PATTERN`, `load_template`, `render`, `scalar`
@@ -468,7 +468,7 @@
    с историей системы контроля версий.
 
 **Основание:** `BKL-009`, `BKL-004` эталона; требования эталона `template-acceptance`;
-[GIT-019](../../../rules/git-rules.md#чтение-истории) — история не читается без указания.
+[GIT-019](../../../.tessera/rules/git-rules.md#чтение-истории) — история не читается без указания.
 
 **Воплощение в эталоне:** `CheckTemplateUseCase`, `MAX_FLAGS = 8` в
 `application/check_template.py`; `_check_values`, `_stub` в `__main__.py`; шаг 2 и шаг 5 навыка
@@ -505,8 +505,8 @@
 5. Лежащий артефакт остаётся на своём адресе и после исполнения.
 
 **Основание:** `BKL-002` эталона; платформа — состояние не пишется в корень плагина;
-[DOCK-009](../../../rules/docker.md#переменные-окружения-dock-004-dock-009-dock-010) по аналогии —
-значения окружения, а не вшитые константы.
+[ENV-005](../../../.tessera/rules/environment.md#переменные-окружения-env-005) по аналогии —
+значения берутся из окружения, а не вшиваются константами.
 
 **Воплощение в эталоне:** `FileBacklogs.path_of` — `<root>/<operation>/<subject>/tasks.md`;
 ключи `--root`, `--templates`, переменные `BACKLOG_ROOT`, `BACKLOG_TEMPLATES`; `_segment`,
@@ -545,9 +545,8 @@
    а «почему так».
 
 **Основание:** `BKL-010` эталона;
-[MAKE-004](../../../rules/makefile-rules.md#локальный-прогон-проверки-make-004) по аналогии —
 изменение не завершено без локального прогона проверки;
-[DOC-020](../../../rules/documentation-rules.md#полнота-содержания) — ограничения фиксируются явно.
+[DOC-020](../../../.tessera/rules/documentation-rules.md#полнота-содержания) — ограничения фиксируются явно.
 
 **Воплощение в эталоне:** подкоманды `lint` и `verify`; `structure_findings`,
 `execution_findings` в `domain.py`; `tests/test_backlog.py` — `python3 -m unittest discover -s tests`,
@@ -575,3 +574,4 @@
 | Версия | Дата | Задача | Агент | Модель | Описание изменений |
 |--------|------|--------|-------|--------|--------------------|
 | 1.0.0 | 2026-10-13 | FRM-012 | Claude Code | Claude Opus 5.5 | Начальное создание: решения `APB-001`..`APB-012` — поставка плагином, вход командной строки, ядро без зависимостей, слои ядра, разделение чтения и записи, доменная модель, нормы как данные поставки, навыки и разделение ролей, конвейер артефакта, приёмка шаблона перебором, адресация артефактов, проверка прогоном; у каждого — требования, основание, воплощение в эталоне, отклонённые альтернативы и признак соответствия |
+| 1.0.1 | 2026-11-25 | OpenSpec change `adopt-tessera-structure`: запрос пользователя принять правила и навыки от tessera | ZCode | GLM-5.4 | Ссылки на правила переведены с каталога `rules/` на копии поставки tessera в `.tessera/rules/`; в воплощении `APB-001` объявление локального маркетплейса названо локальной настройкой харнеса вне индекса; основания `APB-001` и `APB-007` освобождены от кода `TERM-001`; в воплощении `APB-007` `@`-импорты названы в `AGENTS.md`; аналогия `DOCK-009` в `APB-011` заменена на `ENV-005`, аналогия `MAKE-004` в `APB-012` — собственной формулировкой. Требования `APB-001`..`APB-012` не менялись |
