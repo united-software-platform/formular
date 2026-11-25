@@ -16,7 +16,8 @@
 - **BREAKING** — `CLAUDE.md` удаляется; единственная точка входа агентов — `AGENTS.md`.
 - **BREAKING** — каталог `rules/` удаляется целиком, включая три правила, которых нет в поставке
   tessera. Общие правила разработки принимает поставка tessera: скрипт
-  `scripts/install.sh --project --profile tessera` кладёт копии в `.tessera/rules/` и ведёт секцию
+  `scripts/install.sh --scope project --components tessera,mattpocock-skills` кладёт копии в
+  `.tessera/rules/` и ведёт секцию
   в `AGENTS.md`. Нормы беклога и глоссарий по-прежнему подключаются из поставки
   `plugin/backlog/share/`.
 - **BREAKING** — контейнер агента уходит: удаляются `docker-compose.yml`, `.env.example`,
@@ -24,12 +25,13 @@
   разработчиком харнесе.
 - **BREAKING** — `Makefile` и `tools/make-lint/` удаляются. Проверки остаются командами
   `CONTRIBUTING.md`: задач окружения у репозитория нет.
-- Каталоги харнесов `.agents/`, `.claude/`, `.zcode/` становятся локальной настройкой и уходят
-  из индекса вместе с инструментацией OpenSpec и `.claude/settings.json`; ссылки на навыки tessera
-  в них ведут в хранилище машины.
-- tessera ставится в проект профилем без formular. Зависимость остаётся однонаправленной
-  по продуктам: `tessera-plugin` требует `backlog`, поставка formular от tessera не зависит,
-  а в харнесе разработки `backlog` грузится из рабочего дерева.
+- Каталоги харнесов `.agents/`, `.zcode/` и локальная часть `.claude/` становятся локальной
+  настройкой и уходят из индекса; из `.claude/` снимается только `.claude/settings.json` с путём
+  контейнера, а инструментация OpenSpec остаётся в индексе. Ссылки на навыки tessera ведут
+  в хранилище машины.
+- tessera ставится в проект составом без formular. Зависимость остаётся однонаправленной
+  по продуктам: `tessera-plugin` требует `backlog`, поставка formular от tessera не зависит.
+  Плагин `backlog` в харнес разработки не подключается: беклог и есть formular.
 - `README.md` и `CONTRIBUTING.md` приводятся к норме документов проекта `DGN`: блок бейджей,
   «Ограничения» и «Лицензия» в `README.md`. `mise.toml` закрепляет только openspec CLI.
 - Образец плагина `docs/spec/agent-plugin-blueprint/` перестаёт предполагать в целевом проекте
@@ -63,8 +65,8 @@
 - Добавляются поставкой tessera: `.tessera/rules/` — восемь копий правил, переносятся с проектом.
   Ссылки на навыки в `.agents/skills/` и `.claude/skills/` и реестр `.tessera/registry.json`
   описывают машину и остаются локальными.
-- Из индекса уходят `.claude/commands/`, `.claude/skills/` и `.claude/settings.json` — файлы
-  остаются локальной настройкой разработчика.
+- Из индекса уходит только `.claude/settings.json` — файл остаётся локальной настройкой
+  разработчика; инструментация OpenSpec в `.claude/` остаётся в индексе.
 - Переписываются `AGENTS.md` и `.gitignore`; правятся `CONTRIBUTING.md`, `README.md`, пять
   файлов образца плагина и предупреждение исследования.
 - Не затрагиваются поставка `plugin/backlog/`, `tests/`, спецификации
